@@ -1,0 +1,25 @@
+# Android
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+*.apk
+*.aab
+*.keystore
+
+# Electron
+electron-app/node_modules/
+electron-app/.env
+electron-app/dist/
+
+# 공통
+.env
+*.log
+.DS_Store
+Thumbs.db
+
+# Figma
+figma/*.fig
