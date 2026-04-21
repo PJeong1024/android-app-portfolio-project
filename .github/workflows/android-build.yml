@@ -7,6 +7,8 @@ on:
       - 'android-app/**'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'android-app/**'
 
 jobs:
   build:
