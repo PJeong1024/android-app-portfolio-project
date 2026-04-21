@@ -1,0 +1,36 @@
+name: Electron CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v3
+
+      - name: Node.js 설치
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: API 키 주입
+        run: |
+          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" > electron-app/.env
+
+      - name: 패키지 설치
+        run: |
+          cd electron-app
+          npm install
+
+      - name: Electron 빌드
+        run: |
+          cd electron-app
+          npm run build
