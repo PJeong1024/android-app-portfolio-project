@@ -17,15 +17,10 @@ import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -53,49 +48,28 @@ fun WeatherApiScreen(
             .fillMaxSize()
             .padding(paddingValues)
     ) {
-        MainScreen(viewModel = viewModel)
+        WeatherContent(viewModel = viewModel)
     }
 }
 
 @Composable
-fun MainScreen(viewModel: WeatherApiViewModel) {
-    var bottomBarVisible by remember { mutableStateOf(false) }
-    var bottomBarState by remember { mutableStateOf(FBottomBarState.EmptyState) }
-
+private fun WeatherContent(viewModel: WeatherApiViewModel) {
     val weatherData = viewModel.weatherData.collectAsState().value
     val isLoading = viewModel.loading.collectAsState().value
 
-    Scaffold(
-        bottomBar = {
-            when (bottomBarState) {
-                FBottomBarState.EmptyState -> {
-                    bottomBarVisible = true
-                }
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        WeatherScreenHeader { viewModel.getWeather() }
+        LineWithSpacer(3.dp)
 
-                else -> {
-
-                }
-            }
-        }
-    ) { innerPadding ->
-        Surface(modifier = Modifier.padding(innerPadding)) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                WeatherScreenHeader {
-                    viewModel.getWeather()
-                }
-                LineWithSpacer(3.dp)
-
-                if (isLoading) {
-                    CircularProgressIndicator()
-                } else {
-                    TodayWeatherCompose(weatherData)
-                    LineWithSpacer(1.dp)
-                    DetailWeatherInfoListCompose(weatherData)
-                }
-            }
+        if (isLoading) {
+            CircularProgressIndicator()
+        } else {
+            TodayWeatherCompose(weatherData)
+            LineWithSpacer(1.dp)
+            DetailWeatherInfoListCompose(weatherData)
         }
     }
 }
@@ -119,15 +93,13 @@ private fun DetailWeatherInfoListCompose(weatherData: WeatherData) {
         Text(
             text = "Humidity",
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(4.dp),
+            modifier = Modifier.padding(4.dp),
             fontWeight = FontWeight.Bold
         )
         Text(
             text = weatherData.main.humidity.toString(),
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(4.dp),
+            modifier = Modifier.padding(4.dp),
             fontWeight = FontWeight.Bold
         )
     }
@@ -149,15 +121,13 @@ private fun DetailWeatherInfoListCompose(weatherData: WeatherData) {
         Text(
             text = "Temperature",
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(8.dp),
+            modifier = Modifier.padding(8.dp),
             fontWeight = FontWeight.Bold
         )
         Text(
             text = weatherData.main.temp.toString(),
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(8.dp),
+            modifier = Modifier.padding(8.dp),
             fontWeight = FontWeight.Bold
         )
     }
@@ -179,15 +149,13 @@ private fun DetailWeatherInfoListCompose(weatherData: WeatherData) {
         Text(
             text = "Low Temperature",
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(8.dp),
+            modifier = Modifier.padding(8.dp),
             fontWeight = FontWeight.Bold
         )
         Text(
             text = weatherData.main.temp_min.toString(),
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(8.dp),
+            modifier = Modifier.padding(8.dp),
             fontWeight = FontWeight.Bold
         )
     }
@@ -209,15 +177,13 @@ private fun DetailWeatherInfoListCompose(weatherData: WeatherData) {
         Text(
             text = "High Temperature",
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(8.dp),
+            modifier = Modifier.padding(8.dp),
             fontWeight = FontWeight.Bold
         )
         Text(
             text = weatherData.main.temp_max.toString(),
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(8.dp),
+            modifier = Modifier.padding(8.dp),
             fontWeight = FontWeight.Bold
         )
     }
@@ -241,15 +207,13 @@ private fun DetailWeatherInfoListCompose(weatherData: WeatherData) {
         Text(
             text = "Sunrise",
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(8.dp),
+            modifier = Modifier.padding(8.dp),
             fontWeight = FontWeight.Bold
         )
         Text(
             text = formatDateTime(weatherData.sys.sunrise),
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(8.dp),
+            modifier = Modifier.padding(8.dp),
             fontWeight = FontWeight.Bold
         )
     }
@@ -271,15 +235,13 @@ private fun DetailWeatherInfoListCompose(weatherData: WeatherData) {
         Text(
             text = "Sunset",
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(8.dp),
+            modifier = Modifier.padding(8.dp),
             fontWeight = FontWeight.Bold
         )
         Text(
             text = formatDateTime(weatherData.sys.sunset),
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier
-                .padding(8.dp),
+            modifier = Modifier.padding(8.dp),
             fontWeight = FontWeight.Bold
         )
     }
@@ -299,14 +261,12 @@ private fun TodayWeatherCompose(weatherData: WeatherData) {
         Icon(
             painter = rememberAsyncImagePainter(model = imageUrl),
             contentDescription = "Weather Icon",
-            modifier = Modifier
-                .size(100.dp)
+            modifier = Modifier.size(100.dp)
         )
 
         Text(
             text = weatherData.name,
             style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier,
             fontWeight = FontWeight.Bold,
             color = Color.Gray
         )
@@ -314,7 +274,6 @@ private fun TodayWeatherCompose(weatherData: WeatherData) {
         Text(
             text = todayWeather.description.uppercase(),
             style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier
         )
     }
 }
@@ -328,25 +287,18 @@ private fun WeatherScreenHeader(refreshWeather: () -> Unit = {}) {
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            text = "Weather Api Screen",
+            text = "Weather API",
             style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier,
             textAlign = TextAlign.Center,
             fontWeight = FontWeight.Bold
         )
-        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh",
+        Icon(
+            imageVector = Icons.Default.Refresh,
+            contentDescription = "Refresh",
             modifier = Modifier
                 .size(40.dp)
                 .align(alignment = Alignment.CenterVertically)
-                .clickable {
-                    refreshWeather()
-                }
+                .clickable { refreshWeather() }
         )
     }
 }
-
-enum class FBottomBarState {
-    EmptyState,
-}
-
-

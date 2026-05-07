@@ -16,19 +16,13 @@ object Constants {
     )
 
     const val BASE_URL = "https://api.openweathermap.org/"
-
-    val NetworkConnectionTypes = listOf(
-        NetworkConnectionType.NoConnection,
-        NetworkConnectionType.WiFi,
-        NetworkConnectionType.Cellular
-    )
 }
 
 enum class BottomNaviBarScreen(val label: String, val icon: ImageVector, val route: String) {
     GoogleMaps("Google Maps", Icons.Filled.Map, "googleMaps"),
     GeminiCharRoom("Chat with Gemini", Icons.AutoMirrored.Filled.Message, "geminiChatRoom"),
     FirebaseAuthScreen("Firebase Auth", Icons.AutoMirrored.Filled.Login, "firebaseAuthScreen"),
-    WeatherApiScreen("Weather Api Screen", Icons.Filled.Menu, "weatherApiScreen"),
+    WeatherApiScreen("Weather API", Icons.Filled.Menu, "weatherApiScreen"),
 }
 
 enum class NetworkConnectionType(val label: String) {
@@ -36,4 +30,3 @@ enum class NetworkConnectionType(val label: String) {
     WiFi("WiFi"),
     Cellular("Cellular")
 }
-

@@ -19,8 +19,5 @@ interface UserImgDao {
     suspend fun getAllImages(): List<UserImg>
 
     @Query("SELECT * FROM user_images WHERE image_id = :imageID LIMIT 1")
-    suspend fun getImage(imageID: String): UserImg?
-
-    @Query("DELETE FROM user_images WHERE image_id = :imageID")
-    suspend fun deleteByImageID(imageID: Int)
+    suspend fun getImage(imageID: Int): UserImg?
 }

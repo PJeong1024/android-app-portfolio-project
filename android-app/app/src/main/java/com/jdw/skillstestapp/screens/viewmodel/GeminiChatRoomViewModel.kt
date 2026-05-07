@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.client.generativeai.GenerativeModel
 import com.jdw.skillstestapp.data.model.ChatMessage
-import com.jdw.skillstestapp.repository.MyAppRepository
+import com.jdw.skillstestapp.repository.ChatRepository
 import com.jdw.skillstestapp.utils.getTimeStamp
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -16,43 +16,45 @@ import javax.inject.Inject
 
 @HiltViewModel
 class GeminiChatRoomViewModel @Inject constructor(
-    private val appRepository: MyAppRepository,
+    private val chatRepository: ChatRepository,
     private val generativeModel: GenerativeModel,
 ) : ViewModel() {
     private val _chatMessage: MutableStateFlow<List<ChatMessage>> = MutableStateFlow(emptyList())
     val chatMessage: StateFlow<List<ChatMessage>> = _chatMessage.asStateFlow()
 
-    private val _isLoading = MutableStateFlow(true)
-    val isLoading: StateFlow<Boolean> = _isLoading
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     init {
-        getAllMessage()
-
-        if (_chatMessage.value.isEmpty()) {
-            insertMessage(
-                ChatMessage(
-                    sender = "Gemini",
-                    message = "Hi. Ask any question you have.",
-                    timestamp = getTimeStamp()
+        viewModelScope.launch(Dispatchers.IO) {
+            val messages = chatRepository.getAllMessage()
+            if (messages.isEmpty()) {
+                chatRepository.insertMessage(
+                    ChatMessage(
+                        sender = "Gemini",
+                        message = "Hi. Ask any question you have.",
+                        timestamp = getTimeStamp()
+                    )
                 )
-            )
+                _chatMessage.value = chatRepository.getAllMessage()
+            } else {
+                _chatMessage.value = messages
+            }
         }
     }
 
-    // for chatMessage
-
     fun getAllMessage() {
         viewModelScope.launch(Dispatchers.IO) {
-            _chatMessage.value = appRepository.getAllMessage()
+            _chatMessage.value = chatRepository.getAllMessage()
         }
     }
 
     fun sendAndReceiveMessage(chatMessage: ChatMessage) {
         viewModelScope.launch(Dispatchers.IO) {
-            appRepository.insertMessage(chatMessage)
-            _chatMessage.value = appRepository.getAllMessage()
+            chatRepository.insertMessage(chatMessage)
+            _chatMessage.value = chatRepository.getAllMessage()
             _isLoading.value = true
-            appRepository.insertMessage(
+            chatRepository.insertMessage(
                 ChatMessage(
                     sender = "Gemini",
                     message = generativeModel.generateContent(chatMessage.message).text
@@ -60,20 +62,14 @@ class GeminiChatRoomViewModel @Inject constructor(
                     timestamp = getTimeStamp()
                 )
             )
-            _chatMessage.value = appRepository.getAllMessage()
+            _chatMessage.value = chatRepository.getAllMessage()
             _isLoading.value = false
-        }
-    }
-
-    fun insertMessage(chatMessage: ChatMessage) {
-        viewModelScope.launch(Dispatchers.IO) {
-            appRepository.insertMessage(chatMessage)
         }
     }
 
     fun deleteMessage(chatMessage: ChatMessage) {
         viewModelScope.launch(Dispatchers.IO) {
-            appRepository.deleteMessage(chatMessage)
+            chatRepository.deleteMessage(chatMessage)
         }
     }
 }

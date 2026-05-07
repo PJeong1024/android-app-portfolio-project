@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,6 +38,7 @@ import com.google.maps.android.compose.clustering.Clustering
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.jdw.skillstestapp.components.LineWithSpacer
 import com.jdw.skillstestapp.data.model.UserImg
+import com.jdw.skillstestapp.map.UserImgClusterItem
 import com.jdw.skillstestapp.screens.viewmodel.GoogleMapScreenViewModel
 
 
@@ -60,29 +62,27 @@ fun GoogleMapsScreen(
 fun DisplayGoogleMap(viewModel: GoogleMapScreenViewModel) {
     val incheonAirport = LatLng(37.461400, 126.452702)
     val imgList = viewModel.userImages.collectAsState().value
+    val clusterItems = remember(imgList) { imgList.map { UserImgClusterItem(it) } }
+
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(
-            incheonAirport, 10f
-        )
+        position = CameraPosition.fromLatLngZoom(incheonAirport, 10f)
     }
 
-    var bottomBarVisible by remember { mutableStateOf(false) }
     var selectedCluster by remember { mutableStateOf(listOf<UserImg>()) }
     var selectedClusterItem by remember { mutableStateOf(UserImg()) }
-
     var bottomBarState by remember { mutableStateOf(BottomBarState.EmptyState) }
 
-    Scaffold(modifier = Modifier.fillMaxSize(),
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0),
         bottomBar = {
             when (bottomBarState) {
-                BottomBarState.EmptyState -> {
-                    bottomBarVisible = false
-                }
+                BottomBarState.EmptyState -> Unit
 
                 BottomBarState.ImageListState -> {
                     BottomBarImageListView(selectedCluster) { clickedItem ->
-                        Log.d("GoogleMapsScreen", "image clicked! $clickedItem")
-                        bottomBarVisible = false
+                        selectedClusterItem = clickedItem
+                        bottomBarState = BottomBarState.ImageItemState
                     }
                 }
 
@@ -91,24 +91,21 @@ fun DisplayGoogleMap(viewModel: GoogleMapScreenViewModel) {
                 }
             }
         }) { innerPadding ->
-        Surface(modifier = Modifier.padding(innerPadding)) {
+        Surface(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             GoogleMap(
                 modifier = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
                 onMapLoaded = {
-                    // change map init position
                     val latestImage = imgList.firstOrNull() ?: UserImg(
                         imageLat = 37.461400,
                         imageLong = 126.452702
                     )
                     cameraPositionState.position = CameraPosition.fromLatLngZoom(
                         LatLng(
-                            latestImage.imageLat!!.toDouble(),
-                            latestImage.imageLong!!.toDouble()
+                            latestImage.imageLat ?: 37.461400,
+                            latestImage.imageLong ?: 126.452702
                         ), 10f
                     )
-                    // update db with new images
-                    viewModel.fetchImagesToDb()
                 },
                 onMapClick = {
                     Log.d("GoogleMapsScreen", "map clicked! $it")
@@ -116,19 +113,19 @@ fun DisplayGoogleMap(viewModel: GoogleMapScreenViewModel) {
                 }
             ) {
                 Clustering(
-                    items = imgList,
-                    // Optional: Handle clicks on clusters, cluster items, and cluster item info windows
+                    items = clusterItems,
                     onClusterClick = { cluster ->
-                        selectedCluster = cluster.items.sortedByDescending { it.imageDateTaken }
+                        selectedCluster = cluster.items
+                            .map { it.source }
+                            .sortedByDescending { it.imageDateTaken }
                         bottomBarState = BottomBarState.ImageListState
                         false
                     },
                     onClusterItemClick = { clusterItem ->
-                        selectedClusterItem = clusterItem
+                        selectedClusterItem = clusterItem.source
                         bottomBarState = BottomBarState.ImageItemState
                         false
                     },
-                    // Optional: Custom rendering for non-clustered items
                     clusterContent = null,
                     clusterItemContent = null,
                 )
@@ -155,7 +152,7 @@ fun BottomBarImageContent(clusterItem: UserImg) {
 }
 
 @Composable
-fun BottomBarImageListView(selectedCluster: List<UserImg>, listClicked: (String) -> Unit) {
+fun BottomBarImageListView(selectedCluster: List<UserImg>, listClicked: (UserImg) -> Unit) {
     Surface(
         modifier = Modifier
             .padding(10.dp)
@@ -165,20 +162,14 @@ fun BottomBarImageListView(selectedCluster: List<UserImg>, listClicked: (String)
         LazyColumn {
             items(selectedCluster) { userImg ->
                 Row(
-                    modifier = Modifier
-                        .clickable {
-                            listClicked(userImg.imageDisplayName)
-                        },
+                    modifier = Modifier.clickable { listClicked(userImg) },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Image(
                         modifier = Modifier
                             .width(200.dp)
                             .height(200.dp),
-                        painter = rememberAsyncImagePainter(
-                            model =
-                            userImg.imageDataPath
-                        ),
+                        painter = rememberAsyncImagePainter(model = userImg.imageDataPath),
                         contentDescription = userImg.imageDisplayName
                     )
                     Spacer(modifier = Modifier.padding(5.dp))

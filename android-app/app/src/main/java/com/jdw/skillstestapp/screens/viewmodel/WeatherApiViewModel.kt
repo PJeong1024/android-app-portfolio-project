@@ -8,7 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.jdw.skillstestapp.data.model.weather.WeatherData
-import com.jdw.skillstestapp.repository.MyAppRepository
+import com.jdw.skillstestapp.repository.WeatherRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,14 +19,14 @@ import javax.inject.Inject
 @HiltViewModel
 class WeatherApiViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val appRepository: MyAppRepository,
+    private val weatherRepository: WeatherRepository,
 ) : ViewModel() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
-    private val _weatherData = MutableStateFlow<WeatherData>(WeatherData())
+    private val _weatherData = MutableStateFlow(WeatherData())
     val weatherData = _weatherData.asStateFlow()
 
-    private val _loading = MutableStateFlow<Boolean>(true)
+    private val _loading = MutableStateFlow(true)
     val loading = _loading.asStateFlow()
 
     init {
@@ -37,7 +37,7 @@ class WeatherApiViewModel @Inject constructor(
         getDeviceLocation { lat, lon ->
             viewModelScope.launch {
                 _loading.value = true
-                _weatherData.value = appRepository.getWeather(lat, lon)
+                _weatherData.value = weatherRepository.getWeather(lat, lon)
                 _loading.value = false
             }
         }
@@ -49,12 +49,9 @@ class WeatherApiViewModel @Inject constructor(
 
         fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
             if (location != null) {
-                val latitude = location.latitude
-                val longitude = location.longitude
-                onLocationReceived(latitude, longitude)
+                onLocationReceived(location.latitude, location.longitude)
             }
         }.addOnFailureListener {
-            // Handle any errors here
             onLocationReceived(0.0, 0.0)
         }
     }

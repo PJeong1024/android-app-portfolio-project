@@ -1,19 +1,19 @@
 package com.jdw.skillstestapp.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,9 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.jdw.skillstestapp.R
@@ -42,7 +42,7 @@ fun MainScreen(
     navController: NavController = NavController(LocalContext.current),
 ) {
     val context = LocalContext.current
-    val currentScreen = remember { mutableStateOf(BottomNaviBarScreen.WeatherApiScreen) }
+    val currentScreen = remember { mutableStateOf(BottomNaviBarScreen.GoogleMaps) }
 
     Scaffold(
         topBar = {
@@ -82,53 +82,52 @@ fun BottomNavigationBar(
     currentScreen: MutableState<BottomNaviBarScreen>,
     onItemSelected: (BottomNaviBarScreen) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color(0xFFB3E5FC))
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.SpaceAround
+    NavigationBar(
+        tonalElevation = 4.dp,
+        containerColor = MaterialTheme.colorScheme.surface
     ) {
         items.forEach { screen ->
-            BottomNavigationItem(
-                screen = screen,
-                isSelected = currentScreen.value == screen,
-                onItemSelected = { onItemSelected(screen) }
-            )
-        }
-    }
-}
+            val isSelected = currentScreen.value == screen
+            val contentColor = if (isSelected) MaterialTheme.colorScheme.primary
+                               else MaterialTheme.colorScheme.onSurfaceVariant
+            val indicatorColor = MaterialTheme.colorScheme.secondaryContainer
 
-@Composable
-fun BottomNavigationItem(
-    screen: BottomNaviBarScreen,
-    isSelected: Boolean,
-    onItemSelected: () -> Unit
-) {
-    val iconColor = if (isSelected) Color(0xFF01579B) else Color(0xFF9DB3B6)
-    val textColor = if (isSelected) Color(0xFF01579B) else Color(0xFF9DB3B6)
-
-    Button(
-        onClick = onItemSelected,
-        modifier = Modifier
-            .width(120.dp)
-            .height(80.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize(),
-            verticalArrangement = Arrangement.Top,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(imageVector = screen.icon, tint = iconColor, contentDescription = "Icon")
-            Text(
-                text = screen.label,
-                color = textColor,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(80.dp)
+                    .clickable { onItemSelected(screen) },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = if (isSelected) indicatorColor else Color.Transparent,
+                                shape = RoundedCornerShape(50)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = screen.icon,
+                            contentDescription = screen.label,
+                            tint = contentColor
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = screen.label,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = contentColor
+                    )
+                }
+            }
         }
     }
 }

@@ -5,13 +5,11 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.jdw.skillstestapp.data.model.LogInUser
-import com.jdw.skillstestapp.repository.MyAppRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
 @HiltViewModel
 class FireBaseAuthViewModel @Inject constructor(
-    private val appRepository: MyAppRepository,
     private val firebaseAuth: FirebaseAuth,
     private val firebaseFireStore: FirebaseFirestore
 ) : ViewModel() {
