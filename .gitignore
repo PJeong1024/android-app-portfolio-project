@@ -12,11 +12,12 @@ captures/
 
 # Electron
 electron-app/node_modules/
-electron-app/.env
+electron-app/.env.local
 electron-app/dist/
 
 # 공통
 .env
+.env.local
 *.log
 .DS_Store
 Thumbs.db
