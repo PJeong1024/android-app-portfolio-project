@@ -1,9 +1,17 @@
 # Electron 앱 명세 (Google Maps 마커 수신 뷰어)
 
-> 최종 업데이트: 2026-05-07  
+> 최종 업데이트: 2026-05-09  
 > 원본 프로젝트: GoogleMap 기반 Android ↔ macOS 크로스 플랫폼 연동
 
 ---
+
+
+## 작업간 주요 공지사항
+- 작업 범위는 /electron-app 디렉토리 내 Electron 앱 개발로 한정
+- 필요시, 다른 폴더의 md 파일 참조가 가능하지만, md 파일 수정은 불가함
+- Electron 앱은 macOS / Windows 크로스 플랫폼 지원을 목표. 현재는 Mac에서 개발하고 Windows에서 실행되도록 추가 작업
+- 작업간 모든 내역은 히스토리 섹션에 기록하여 향후 작업간 참조
+
 
 ## 1. 앱 개요
 
@@ -50,15 +58,18 @@ Google Maps JavaScript API 위에 마커를 누적 표시한다.
 
 ```
 electron-app/
-├── main.js              # Main Process (USB/TCP 수신, IPC)
+├── main.js              # Main Process (USB/TCP 수신, IPC, DB)
 ├── preload.js           # 보안 브릿지
-├── index.html           # Renderer (지도 UI)
-├── renderer.js          # Maps JS API + IPC 수신
+├── index.html           # Renderer (지도 UI + 설정 패널 + 클러스터 패널)
+├── renderer.js          # Maps JS API + IPC 수신 + 클러스터링 + DB 복원
 ├── transport/
-│   ├── UsbReceiver.js   # serialport 기반
-│   └── TcpReceiver.js   # net.Server 기반
+│   ├── DataReceiver.js  # 추상 기반 클래스 (EventEmitter)
+│   ├── TcpReceiver.js   # net.Server 기반 (Electron 서버, Android 클라이언트)
+│   └── UsbReceiver.js   # serialport 기반 (스텁)
 ├── packet/
-│   └── PacketParser.js  # 패킷 파싱
+│   └── PacketParser.js  # 스트리밍 파서 + 패킷 빌더
+├── db/
+│   └── MarkerDatabase.js # SQLite DB (better-sqlite3)
 ├── .env.local           # API 키 (gitignore 처리)
 └── package.json
 ```
@@ -85,38 +96,68 @@ const SerialPort = require('serialport')
 
 ### TCP 수신 (TcpReceiver.js)
 
-```javascript
-const net = require('net')
-
-const server = net.createServer((socket) => {
-  socket.on('data', (data) => {
-    mainWindow.webContents.send('new-location', parsePacket(data))
-  })
-})
-server.listen(8080, '0.0.0.0')
-```
+- Electron이 TCP **서버**, Android가 **클라이언트**로 접속
+- `net.createServer()` 로 0.0.0.0 바인딩, 동시 연결은 1개로 제한
+- `DataReceiver` 추상 클래스 상속 — USB와 동일 이벤트 인터페이스 (`packet`, `client-connected`, `client-disconnected`, `error`)
 
 ---
 
 ## 7. 수신 패킷 프로토콜
 
+
+### 전송간 동작(Android App <-> Electron App)
+
+1. Android 앱에서의 기존 동작
+- 폰에 있는 사진들에서 GPS 정보를 꺼내서 googlemap에서 마커/마커 클러스터 방식으로 표시
+- 단독 마커를 클릭하면 이미지를 보여주고, 클러스터를 클릭하면 이미지 리스트를 보여줌
+- 이미지 리스트에서 이미지를 선택하면 앞의 단독 마커 클릭처럼 이미지를 보여줌
+
+2. Electron 앱과의 연계동작(구현 목표)
+- 안드로이드 앱에서 마커나 클러스터를 클릭하면 마커 리스트 정보를 전송
+  - 전송 데이터는 imageID + imageDisplayName + imageLat + imageLong 포함
+  - 자세한 내용은 image data class 참조
+- Electron 앱에서는 해당 데이터로 마커/클러스터 표시
+- 사용자가 Electron 앱에서 해당 표시된 마커 혹은 클러스터 클릭시 Electron 앱에서는 아래와 같이 표시
+  - 마커 클릭시는 이미지 1개 표시하면서 안드로이드 앱에 imageID 기반으로 이미지 데이터 전송 요청(원본). 전송되는대로 async 이미지 로딩 진행
+  - 클러스터 클릭시는 해당 클러스터에 포함된 이미지 이름 리스트 표시(imageDataPath). 사용자가 리스트에서 이미지를 선택하면 해당 이미지 데이터 전송 요청(원본). 전송되는대로 async 이미지 로딩 진행
+
+### image data sample
+```kotlin
+@Entity(tableName = "user_images")
+data class UserImg(
+    @PrimaryKey @ColumnInfo(name = "image_id") val imageID: Int = 0,
+    @ColumnInfo(name = "image_data_path") val imageDataPath: String = "",
+    @ColumnInfo(name = "image_display_name") val imageDisplayName: String = "",
+    @ColumnInfo(name = "image_lat") val imageLat: Double? = null,
+    @ColumnInfo(name = "image_long") val imageLong: Double? = null,
+    @ColumnInfo(name = "image_date_taken") val imageDateTaken: Long = 0L,
+    @ColumnInfo(name = "image_orientation") val imageOri: Int = 0,
+    @ColumnInfo(name = "image_size") val imageSize: Long = 0L,
+    @ColumnInfo(name = "image_address") val imageAddress: String = ""
+)
+
+```
+
 ### 패킷 구조
 
 ```
-[STX 1byte][TYPE 1byte][LENGTH 4byte][PAYLOAD N byte][ETX 1byte][CHECKSUM 1byte]
+[STX 1byte][CMD 1byte][LENGTH 4byte][PAYLOAD N byte][CHECKSUM 1byte][ETX 1byte]
+- STX (Start of Text): 0x02
+- Packet Command (CMD): JSON 직렬화된 데이터 통신간 구분
+- LENGTH: PAYLOAD 길이 (4 byte, big-endian)
+- PAYLOAD: 전송데이터를 JSON 직렬화한 바이트 배열
+- CHECKSUM: (CMD + LENGTH + PAYLOAD) % 256
+- ETX (End of Text): 0x03
 ```
 
-### PAYLOAD 구조 (마커 데이터)
+### Packet CMD 종류 (확장 가능)
+| CMD | 설명 | 패킷 전송 방향|
+|-----|------|---|
+| 0x01 | image list (imageID + imageDisplayName + imageLat + imageLong 으로 구성된 단독 데이터 혹은 리스트) | Android → Electron |
+| 0x02 | image data request (imageID 단독 혹은 리스트) | Electron → Android |
+| 0x03 | thumbnail image data response (imageID + thumbnailImageData) | Android → Electron |
+| 0x04 | raw image data response (imageID + imageData) -> 향후 구현  | Android → Electron |
 
-| 필드 | 타입 | 크기 |
-|------|------|------|
-| 위도 (latitude) | double | 8 byte |
-| 경도 (longitude) | double | 8 byte |
-| 이미지 크기 | int | 4 byte |
-| 이미지 데이터 | byte[] | N byte (JPEG 압축) |
-
-- 이미지는 512px 이하로 리사이즈 후 JPEG 압축 전송
-- 대용량 이미지는 청크 분할 전송 검토 필요
 
 ---
 
@@ -156,12 +197,22 @@ document.head.appendChild(script)
 - [x] Google Maps JS API 지도 표시 (동적 스크립트 주입 방식)
 - [x] API 키 `.env.local` 관리 + IPC로 Renderer 전달
 - [x] preload.js 보안 브릿지 (contextIsolation)
-- [x] IPC 채널 구조 (`get-config`, `new-location`) 뼈대
-- [x] transport/, packet/ 디렉토리 및 파일 뼈대 생성
-- [ ] UsbReceiver 구현 (serialport) — 미구현
-- [ ] TcpReceiver 구현 (net.Server) — 미구현
-- [ ] PacketParser 구현 — 미구현
-- [ ] 패킷 파싱 → IPC → 마커 표시 연동
+- [x] IPC 채널 구조 (`get-config`, `get-all-markers`, `image-list`, `thumbnail`, `transport-status`, `request-images`, `tcp-start/stop`, `get-local-addresses`)
+- [x] transport/, packet/, db/ 디렉토리 및 파일 구현
+- [x] PacketParser 구현 — 안드로이드 프로토콜과 동일 (스트리밍 파서 + 빌더)
+- [x] DataReceiver 추상 기반 클래스 (`transport/DataReceiver.js`)
+- [x] TcpReceiver 구현 (net.Server — Electron 서버, Android 클라이언트)
+- [x] UsbReceiver 스텁 (serialport 추후 구현, graceful fallback)
+- [x] 패킷 파싱 → IPC → 마커 표시 연동
+- [x] TCP 설정 UI (로컬 IP 표시, 포트 설정, 서버 시작/중지, 연결 상태)
+- [x] 마커 클릭 → 썸네일 요청 → 비동기 InfoWindow 표시
+- [x] SQLite DB (`better-sqlite3`) — 마커 수신 시 중복 체크 후 저장, 썸네일 캐시
+- [x] 앱 시작 시 DB에서 마커 복원 + 지도 자동 이동 (fitBounds)
+- [x] 새 마커 수신 시 해당 위치로 지도 자동 이동
+- [x] 마커 클러스터링 (`@googlemaps/markerclusterer`) — 줌 레벨 연동 자동 클러스터
+- [x] 클러스터 클릭 → 좌측 이미지 목록 패널 표시 (썸네일 미리보기 포함)
+- [x] 목록 이미지 선택 → 모달에서 썸네일 async 로딩
+- [ ] UsbReceiver 구현 (serialport) — serialport 패키지 설치 후 구현
 
 ---
 
@@ -171,7 +222,8 @@ document.head.appendChild(script)
 |------|------|
 | IDE | VS Code |
 | Node.js | v18+ |
-| 주요 패키지 | electron ^33, dotenv ^16 (serialport는 통신 구현 시 추가 예정) |
+| 주요 패키지 | electron ^33, dotenv ^16, better-sqlite3, @googlemaps/markerclusterer (serialport는 USB 구현 시 추가 예정) |
+| 네이티브 모듈 빌드 | `npx electron-rebuild` — better-sqlite3를 Electron ABI에 맞게 재컴파일 필요 |
 | 테스트 도구 | socat (가상 포트 테스트, `brew install socat`) |
 
 ---
@@ -225,3 +277,16 @@ jobs:
 > USB CDC / TCP Socket 이중 수신 방식을 추상화하여 런타임 교체 가능한 로컬 통신 모듈 설계
 
 > Android ↔ macOS 간 커스텀 바이너리 패킷 프로토콜 설계 및 파싱 구현
+
+
+## 14. 작업 히스토리 내역
+
+- 2026-05-07 - Electron 앱 초기 셋업 및 Google Maps JS API 연동 완료
+- 2026-05-09 - TCP 통신 모듈 구현 및 실기기(Android) 연동 테스트 완료
+  - PacketParser (스트리밍 파서 + 빌더), DataReceiver 추상 클래스, TcpReceiver, UsbReceiver 스텁 구현
+  - IPC 채널 전체 구성 (transport-status, image-list, thumbnail, request-images 등)
+  - TCP 설정 UI (Mac IP 표시, 포트 설정, 서버 시작/중지, 연결 상태)
+  - SQLite DB (better-sqlite3) — 마커 중복 체크 저장, 썸네일 캐시, 앱 재시작 시 복원
+  - 수신 마커 기준 지도 자동 이동 (fitBounds / panTo)
+  - @googlemaps/markerclusterer 클러스터링 — 클러스터 클릭 시 이미지 목록 패널 + async 썸네일 로딩
+  - better-sqlite3 Electron ABI 불일치 수정 (electron-rebuild)

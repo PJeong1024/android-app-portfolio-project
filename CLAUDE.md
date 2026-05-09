@@ -112,23 +112,65 @@ server.listen(8080, '0.0.0.0')
 
 ## 6. 패킷 프로토콜 (초안)
 
+
+### 전송간 동작(Android App <-> Electron App)
+
+1. Android 앱에서의 기존 동작
+- 폰에 있는 사진들에서 GPS 정보를 꺼내서 googlemap에서 마커/마커 클러스터 방식으로 표시
+- 단독 마커를 클릭하면 이미지를 보여주고, 클러스터를 클릭하면 이미지 리스트를 보여줌
+- 이미지 리스트에서 이미지를 선택하면 앞의 단독 마커 클릭처럼 이미지를 보여줌
+
+2. Electron 앱과의 연계동작(구현 목표)
+- 안드로이드 앱에서 마커나 클러스터를 클릭하면 마커 리스트 정보를 전송
+  - 전송 데이터는 imageID + imageDisplayName + imageLat + imageLong 포함
+  - 자세한 내용은 image data class 참조
+- Electron 앱에서는 해당 데이터로 마커/클러스터 표시
+- 사용자가 Electron 앱에서 해당 표시된 마커 혹은 클러스터 클릭시 Electron 앱에서는 아래와 같이 표시
+  - 마커 클릭시는 이미지 1개 표시하면서 안드로이드 앱에 imageID 기반으로 이미지 데이터 전송 요청(원본). 전송되는대로 async 이미지 로딩 진행
+  - 클러스터 클릭시는 해당 클러스터에 포함된 이미지 이름 리스트 표시(imageDataPath). 사용자가 리스트에서 이미지를 선택하면 해당 이미지 데이터 전송 요청(원본). 전송되는대로 async 이미지 로딩 진행
+
+### image data sample
+```kotlin
+@Entity(tableName = "user_images")
+data class UserImg(
+    @PrimaryKey @ColumnInfo(name = "image_id") val imageID: Int = 0,
+    @ColumnInfo(name = "image_data_path") val imageDataPath: String = "",
+    @ColumnInfo(name = "image_display_name") val imageDisplayName: String = "",
+    @ColumnInfo(name = "image_lat") val imageLat: Double? = null,
+    @ColumnInfo(name = "image_long") val imageLong: Double? = null,
+    @ColumnInfo(name = "image_date_taken") val imageDateTaken: Long = 0L,
+    @ColumnInfo(name = "image_orientation") val imageOri: Int = 0,
+    @ColumnInfo(name = "image_size") val imageSize: Long = 0L,
+    @ColumnInfo(name = "image_address") val imageAddress: String = ""
+)
+
 ```
-[STX 1byte][TYPE 1byte][LENGTH 4byte][PAYLOAD N byte][ETX 1byte][CHECKSUM 1byte]
+
+### 패킷 구조
+
+```
+[STX 1byte][CMD 1byte][LENGTH 4byte][PAYLOAD N byte][CHECKSUM 1byte][ETX 1byte]
+- STX (Start of Text): 0x02
+- Packet Command (CMD): JSON 직렬화된 데이터 통신간 구분
+- LENGTH: PAYLOAD 길이 (4 byte, big-endian)
+- PAYLOAD: 전송데이터를 JSON 직렬화한 바이트 배열
+- CHECKSUM: (CMD + LENGTH + PAYLOAD) % 256
+- ETX (End of Text): 0x03
 ```
 
-### PAYLOAD 구조 (마커 데이터)
-
-| 필드 | 타입 | 크기 |
-|------|------|------|
-| 위도 (latitude) | double | 8 byte |
-| 경도 (longitude) | double | 8 byte |
-| 이미지 크기 | int | 4 byte |
-| 이미지 데이터 | byte[] | N byte (JPEG 압축) |
-
-- 이미지는 512px 이하로 리사이즈 후 JPEG 압축 전송
-- 대용량 이미지는 청크 분할 전송 검토 필요
+### Packet CMD 종류 (확장 가능)
+| CMD | 설명 | 패킷 전송 방향|
+|-----|------|---|
+| 0x01 | image list (imageID + imageDisplayName + imageLat + imageLong 으로 구성된 단독 데이터 혹은 리스트) | Android → Electron |
+| 0x02 | image data request (imageID 단독 혹은 리스트) | Electron → Android |
+| 0x03 | thumbnail image data response (imageID + thumbnailImageData) | Android → Electron |
+| 0x04 | raw image data response (imageID + imageData) -> 향후 구현  | Android → Electron |
 
 ---
+
+
+
+
 
 ## 7. 안드로이드 앱 구조
 

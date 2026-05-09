@@ -14,13 +14,300 @@
       "
     >
     <title>GPS Marker Viewer</title>
+    <!-- MarkerClusterer: node_modules 로컬 UMD 빌드 (CSP 'self' 범위 내) -->
+    <script src="node_modules/@googlemaps/markerclusterer/dist/index.umd.js"></script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body, #map { width: 100%; height: 100vh; }
+      html, body { width: 100%; height: 100vh; font-family: -apple-system, sans-serif; }
+
+      #map { width: 100%; height: 100vh; }
+
+      /* ── Settings panel (우상단) ── */
+      #settings-panel {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        width: 280px;
+        background: rgba(255,255,255,0.97);
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+        z-index: 1000;
+        overflow: hidden;
+      }
+
+      #panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 14px;
+        background: #1a73e8;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      #panel-header button {
+        background: none;
+        border: none;
+        color: white;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      #panel-header button:hover { background: rgba(255,255,255,0.2); }
+
+      #panel-body {
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-height: 400px;
+        overflow: hidden;
+        transition: max-height 0.2s ease, padding 0.2s ease;
+      }
+      #panel-body.collapsed { max-height: 0; padding: 0; }
+
+      .field-label {
+        font-size: 11px;
+        color: #666;
+        margin-bottom: 4px;
+        font-weight: 500;
+      }
+
+      #local-addresses {
+        font-size: 13px;
+        color: #1a73e8;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+      }
+
+      .port-row { display: flex; align-items: center; gap: 8px; }
+
+      #port-input {
+        flex: 1;
+        padding: 6px 10px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 13px;
+        outline: none;
+      }
+      #port-input:focus { border-color: #1a73e8; }
+
+      #server-btn {
+        padding: 7px 16px;
+        border: none;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        background: #1a73e8;
+        color: white;
+        transition: background 0.15s;
+        white-space: nowrap;
+      }
+      #server-btn:hover { background: #1557b0; }
+      #server-btn.stop { background: #d93025; }
+      #server-btn.stop:hover { background: #a50e0e; }
+
+      #status-display {
+        font-size: 12px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: #f1f3f4;
+        color: #555;
+        line-height: 1.5;
+        white-space: pre-line;
+      }
+      #status-display.connected { background: #e6f4ea; color: #137333; }
+      #status-display.error     { background: #fce8e6; color: #c5221f; }
+      #status-display.listening { background: #e8f0fe; color: #1a73e8; }
+
+      /* ── Cluster image list panel (좌측) ── */
+      #cluster-panel {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        width: 240px;
+        max-height: calc(100vh - 24px);
+        background: rgba(255,255,255,0.97);
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+        z-index: 1000;
+        display: none;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #cluster-panel.visible { display: flex; }
+
+      #cluster-panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 14px;
+        background: #1a73e8;
+        color: white;
+        font-size: 13px;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+      #cluster-panel-header button {
+        background: none;
+        border: none;
+        color: white;
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+        padding: 0 2px;
+      }
+
+      #cluster-list {
+        overflow-y: auto;
+        flex: 1;
+      }
+
+      .cluster-item {
+        padding: 10px 14px;
+        font-size: 13px;
+        color: #333;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: background 0.1s;
+      }
+      .cluster-item:last-child { border-bottom: none; }
+      .cluster-item:hover { background: #f0f7ff; }
+      .cluster-item .thumb {
+        width: 36px;
+        height: 36px;
+        border-radius: 4px;
+        object-fit: cover;
+        flex-shrink: 0;
+        background: #eee;
+      }
+      .cluster-item .thumb-placeholder {
+        width: 36px;
+        height: 36px;
+        border-radius: 4px;
+        background: #e8f0fe;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+      }
+      .cluster-item-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* ── Image modal ── */
+      #image-modal {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 2000;
+        justify-content: center;
+        align-items: center;
+      }
+      #image-modal.visible { display: flex; }
+
+      #modal-content {
+        background: white;
+        border-radius: 12px;
+        padding: 20px;
+        max-width: 90vw;
+        max-height: 90vh;
+        overflow: auto;
+        position: relative;
+      }
+
+      #modal-close {
+        position: absolute;
+        top: 10px; right: 12px;
+        background: none;
+        border: none;
+        font-size: 20px;
+        cursor: pointer;
+        color: #555;
+      }
+
+      #modal-title {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 12px;
+        color: #333;
+        padding-right: 24px;
+      }
+
+      #modal-img {
+        max-width: 100%;
+        max-height: 70vh;
+        border-radius: 8px;
+        display: block;
+      }
+
+      #modal-loading {
+        font-size: 13px;
+        color: #888;
+        padding: 20px 0;
+        text-align: center;
+      }
     </style>
   </head>
   <body>
     <div id="map"></div>
+
+    <!-- 연결 설정 패널 -->
+    <div id="settings-panel">
+      <div id="panel-header">
+        <span>연결 설정</span>
+        <button id="toggle-btn">접기</button>
+      </div>
+      <div id="panel-body">
+        <div>
+          <div class="field-label">Mac IP 주소 (Android에 입력)</div>
+          <div id="local-addresses">로딩 중...</div>
+        </div>
+        <div>
+          <div class="field-label">포트</div>
+          <div class="port-row">
+            <input id="port-input" type="number" value="8080" min="1024" max="65535">
+            <button id="server-btn">서버 시작</button>
+          </div>
+        </div>
+        <div>
+          <div class="field-label">연결 상태</div>
+          <div id="status-display">대기 중</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 클러스터 이미지 목록 패널 -->
+    <div id="cluster-panel">
+      <div id="cluster-panel-header">
+        <span>이미지 목록 (<span id="cluster-count">0</span>개)</span>
+        <button id="cluster-panel-close">✕</button>
+      </div>
+      <div id="cluster-list"></div>
+    </div>
+
+    <!-- 이미지 모달 -->
+    <div id="image-modal">
+      <div id="modal-content">
+        <button id="modal-close">✕</button>
+        <div id="modal-title"></div>
+        <div id="modal-loading">이미지 로딩 중...</div>
+        <img id="modal-img" style="display:none">
+      </div>
+    </div>
+
     <script src="renderer.js"></script>
   </body>
 </html>
