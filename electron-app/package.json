@@ -9,7 +9,8 @@
   "dependencies": {
     "@googlemaps/markerclusterer": "^2.6.2",
     "better-sqlite3": "^12.9.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "usb": "^2.17.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",

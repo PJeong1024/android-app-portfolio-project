@@ -32,6 +32,11 @@ function wireReceiver(receiver, type) {
     mainWindow?.webContents.send('transport-status', { type, event: 'error', message: err.message })
   })
 
+  // AOA-specific: Android disconnected and is switching to accessory mode
+  receiver.on('handshake-done', () => {
+    mainWindow?.webContents.send('transport-status', { type, event: 'handshake-done' })
+  })
+
   receiver.on('packet', (cmd, payload) => {
     handlePacket(receiver, cmd, payload)
   })
@@ -95,6 +100,24 @@ ipcMain.handle('tcp-start', (_event, port) => {
 
 ipcMain.handle('tcp-stop', () => {
   tcpReceiver.stop()
+})
+
+ipcMain.handle('usb-list-devices', () => {
+  const { UsbReceiver } = require('./transport/UsbReceiver')
+  return UsbReceiver.listDevices()
+})
+
+ipcMain.handle('usb-start', () => {
+  try {
+    usbReceiver.start()
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('usb-stop', () => {
+  usbReceiver.stop()
 })
 
 ipcMain.handle('request-images', (_event, imageIDs) => {

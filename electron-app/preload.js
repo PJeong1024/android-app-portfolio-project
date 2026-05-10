@@ -12,6 +12,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   tcpStart: (port) => ipcRenderer.invoke('tcp-start', port),
   tcpStop: () => ipcRenderer.invoke('tcp-stop'),
 
+  // USB (AOA) control
+  usbListDevices: () => ipcRenderer.invoke('usb-list-devices'),
+  usbStart: () => ipcRenderer.invoke('usb-start'),
+  usbStop: () => ipcRenderer.invoke('usb-stop'),
+
   // Send image request to Android
   requestImages: (imageIDs) => ipcRenderer.invoke('request-images', imageIDs),
 

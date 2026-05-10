@@ -67,15 +67,43 @@ async function loadMarkersFromDB() {
 // --- Settings panel ---
 
 async function setupSettingsPanel() {
-  const addresses = await window.electronAPI.getLocalAddresses()
-  document.getElementById('local-addresses').textContent =
-    addresses.length > 0 ? addresses.join(', ') : '인식된 IP 없음'
-
+  // Collapse toggle
   document.getElementById('toggle-btn').addEventListener('click', () => {
     const panelBody = document.getElementById('panel-body')
     const collapsed = panelBody.classList.toggle('collapsed')
     document.getElementById('toggle-btn').textContent = collapsed ? '펼치기' : '접기'
   })
+
+  // Mode toggle
+  let currentMode = 'tcp'
+  document.querySelectorAll('.mode-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.mode === currentMode) return
+      currentMode = btn.dataset.mode
+      document.querySelectorAll('.mode-btn').forEach((b) => b.classList.remove('active'))
+      btn.classList.add('active')
+      document.getElementById('tcp-section').style.display = currentMode === 'tcp' ? '' : 'none'
+      document.getElementById('usb-section').style.display = currentMode === 'usb' ? '' : 'none'
+      setStatus('대기 중', '')
+    })
+  })
+
+  await setupTcpSection()
+  await setupUsbSection()
+
+  // Shared transport status listener
+  window.electronAPI.onTransportStatus((status) => {
+    if (status.type === 'tcp') handleTcpStatus(status)
+    else if (status.type === 'usb') handleUsbStatus(status)
+  })
+}
+
+// --- TCP section ---
+
+async function setupTcpSection() {
+  const addresses = await window.electronAPI.getLocalAddresses()
+  document.getElementById('local-addresses').textContent =
+    addresses.length > 0 ? addresses.join(', ') : '인식된 IP 없음'
 
   let serverRunning = false
   const serverBtn = document.getElementById('server-btn')
@@ -94,25 +122,99 @@ async function setupSettingsPanel() {
     }
   })
 
-  window.electronAPI.onTransportStatus((status) => {
-    if (status.type !== 'tcp') return
+  window._tcpSetServerRunning = (val) => { serverRunning = val }
+}
 
-    if (status.event === 'listening') {
-      serverRunning = true
-      serverBtn.textContent = '서버 중지'
-      serverBtn.classList.add('stop')
-      setStatus(`대기 중 — 포트 ${status.port}\nAndroid에서 위 IP:${status.port} 로 연결하세요`, 'listening')
-    } else if (status.event === 'connected') {
-      setStatus(`연결됨 — ${status.address}`, 'connected')
-    } else if (status.event === 'disconnected') {
-      setStatus(`클라이언트 연결 해제\n서버 대기 중...`, 'listening')
-    } else if (status.event === 'error') {
-      serverRunning = false
-      serverBtn.textContent = '서버 시작'
-      serverBtn.classList.remove('stop')
-      setStatus(`오류: ${status.message}`, 'error')
+function handleTcpStatus(status) {
+  const serverBtn = document.getElementById('server-btn')
+  if (status.event === 'listening') {
+    window._tcpSetServerRunning(true)
+    serverBtn.textContent = '서버 중지'
+    serverBtn.classList.add('stop')
+    setStatus(`대기 중 — 포트 ${status.port}\nAndroid에서 위 IP:${status.port} 로 연결하세요`, 'listening')
+  } else if (status.event === 'connected') {
+    setStatus(`연결됨 — ${status.address}`, 'connected')
+  } else if (status.event === 'disconnected') {
+    setStatus(`클라이언트 연결 해제\n서버 대기 중...`, 'listening')
+  } else if (status.event === 'error') {
+    window._tcpSetServerRunning(false)
+    serverBtn.textContent = '서버 시작'
+    serverBtn.classList.remove('stop')
+    setStatus(`오류: ${status.message}`, 'error')
+  }
+}
+
+// --- USB section ---
+
+async function setupUsbSection() {
+  const connectBtn = document.getElementById('usb-connect-btn')
+  let usbConnected = false
+
+  await refreshUsbDevices()
+
+  document.getElementById('usb-refresh-btn').addEventListener('click', refreshUsbDevices)
+
+  connectBtn.addEventListener('click', async () => {
+    if (!usbConnected) {
+      const result = await window.electronAPI.usbStart()
+      if (!result.success) setStatus(`USB 오류: ${result.error}`, 'error')
+    } else {
+      await window.electronAPI.usbStop()
+      usbConnected = false
+      connectBtn.textContent = '연결'
+      connectBtn.classList.remove('stop')
+      setStatus('대기 중', '')
     }
   })
+
+  window._usbSetConnected = (val) => { usbConnected = val }
+}
+
+async function refreshUsbDevices() {
+  const infoEl = document.getElementById('usb-device-info')
+  infoEl.textContent = '스캔 중...'
+
+  const devices = await window.electronAPI.usbListDevices()
+
+  if (devices.length === 0) {
+    infoEl.textContent = '감지된 Android 장치 없음'
+    infoEl.style.color = '#aaa'
+    return
+  }
+
+  infoEl.style.color = '#1a73e8'
+  infoEl.textContent = devices.map((d) => {
+    const vid = `0x${d.vendorId.toString(16).toUpperCase().padStart(4, '0')}`
+    const pid = `0x${d.productId.toString(16).toUpperCase().padStart(4, '0')}`
+    return d.isAccessory ? `AOA 모드 (${pid})` : `Android 장치 (VID ${vid})`
+  }).join('\n')
+}
+
+function handleUsbStatus(status) {
+  const connectBtn = document.getElementById('usb-connect-btn')
+
+  if (status.event === 'handshake-done') {
+    // AOA handshake sent — waiting for Android to reconnect in accessory mode
+    setStatus('AOA 핸드셰이크 완료\nAndroid 재연결 대기 중...', 'listening')
+
+  } else if (status.event === 'connected') {
+    window._usbSetConnected(true)
+    connectBtn.textContent = '연결 해제'
+    connectBtn.classList.add('stop')
+    setStatus(`USB AOA 연결됨\n${status.address}`, 'connected')
+
+  } else if (status.event === 'disconnected') {
+    window._usbSetConnected(false)
+    connectBtn.textContent = '연결'
+    connectBtn.classList.remove('stop')
+    setStatus('USB 연결 해제', '')
+
+  } else if (status.event === 'error') {
+    window._usbSetConnected(false)
+    connectBtn.textContent = '연결'
+    connectBtn.classList.remove('stop')
+    setStatus(`USB 오류: ${status.message}`, 'error')
+  }
 }
 
 function setStatus(text, cssClass) {

@@ -64,7 +64,7 @@
         display: flex;
         flex-direction: column;
         gap: 12px;
-        max-height: 400px;
+        max-height: 480px;
         overflow: hidden;
         transition: max-height 0.2s ease, padding 0.2s ease;
       }
@@ -96,7 +96,7 @@
       }
       #port-input:focus { border-color: #1a73e8; }
 
-      #server-btn {
+      #server-btn, #usb-connect-btn {
         padding: 7px 16px;
         border: none;
         border-radius: 6px;
@@ -108,9 +108,51 @@
         transition: background 0.15s;
         white-space: nowrap;
       }
-      #server-btn:hover { background: #1557b0; }
-      #server-btn.stop { background: #d93025; }
-      #server-btn.stop:hover { background: #a50e0e; }
+      #server-btn:hover, #usb-connect-btn:hover { background: #1557b0; }
+      #server-btn.stop, #usb-connect-btn.stop { background: #d93025; }
+      #server-btn.stop:hover, #usb-connect-btn.stop:hover { background: #a50e0e; }
+
+      /* ── Mode toggle ── */
+      .mode-toggle {
+        display: flex;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .mode-btn {
+        flex: 1;
+        padding: 6px 0;
+        border: none;
+        background: white;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        color: #555;
+        transition: background 0.15s, color 0.15s;
+      }
+      .mode-btn.active { background: #1a73e8; color: white; }
+
+      /* ── USB section ── */
+      .device-scan-row { display: flex; align-items: center; gap: 6px; }
+      #usb-device-info {
+        flex: 1;
+        font-size: 12px;
+        color: #555;
+        padding: 4px 0;
+        line-height: 1.5;
+      }
+      #usb-refresh-btn {
+        padding: 6px 10px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        background: white;
+        font-size: 13px;
+        cursor: pointer;
+        color: #555;
+        flex-shrink: 0;
+      }
+      #usb-refresh-btn:hover { background: #f0f7ff; }
+      #usb-connect-btn { width: 100%; margin-top: 6px; }
 
       #status-display {
         font-size: 12px;
@@ -271,17 +313,43 @@
         <button id="toggle-btn">접기</button>
       </div>
       <div id="panel-body">
+        <!-- 통신 방식 선택 -->
         <div>
-          <div class="field-label">Mac IP 주소 (Android에 입력)</div>
-          <div id="local-addresses">로딩 중...</div>
-        </div>
-        <div>
-          <div class="field-label">포트</div>
-          <div class="port-row">
-            <input id="port-input" type="number" value="8080" min="1024" max="65535">
-            <button id="server-btn">서버 시작</button>
+          <div class="field-label">통신 방식</div>
+          <div class="mode-toggle">
+            <button class="mode-btn active" data-mode="tcp">TCP</button>
+            <button class="mode-btn" data-mode="usb">USB</button>
           </div>
         </div>
+
+        <!-- TCP 섹션 -->
+        <div id="tcp-section">
+          <div>
+            <div class="field-label">Mac IP 주소 (Android에 입력)</div>
+            <div id="local-addresses">로딩 중...</div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="field-label">포트</div>
+            <div class="port-row">
+              <input id="port-input" type="number" value="8080" min="1024" max="65535">
+              <button id="server-btn">서버 시작</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- USB 섹션 -->
+        <div id="usb-section" style="display:none">
+          <div>
+            <div class="field-label">감지된 Android 장치 (AOA)</div>
+            <div class="device-scan-row">
+              <div id="usb-device-info">스캔 중...</div>
+              <button id="usb-refresh-btn">↺</button>
+            </div>
+          </div>
+          <button id="usb-connect-btn">연결</button>
+        </div>
+
+        <!-- 공통 연결 상태 -->
         <div>
           <div class="field-label">연결 상태</div>
           <div id="status-display">대기 중</div>

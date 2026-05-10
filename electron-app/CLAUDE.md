@@ -197,14 +197,14 @@ document.head.appendChild(script)
 - [x] Google Maps JS API 지도 표시 (동적 스크립트 주입 방식)
 - [x] API 키 `.env.local` 관리 + IPC로 Renderer 전달
 - [x] preload.js 보안 브릿지 (contextIsolation)
-- [x] IPC 채널 구조 (`get-config`, `get-all-markers`, `image-list`, `thumbnail`, `transport-status`, `request-images`, `tcp-start/stop`, `get-local-addresses`)
+- [x] IPC 채널 구조 (`get-config`, `get-all-markers`, `image-list`, `thumbnail`, `transport-status`, `request-images`, `tcp-start/stop`, `get-local-addresses`, `usb-list-devices`, `usb-start/stop`)
 - [x] transport/, packet/, db/ 디렉토리 및 파일 구현
 - [x] PacketParser 구현 — 안드로이드 프로토콜과 동일 (스트리밍 파서 + 빌더)
 - [x] DataReceiver 추상 기반 클래스 (`transport/DataReceiver.js`)
 - [x] TcpReceiver 구현 (net.Server — Electron 서버, Android 클라이언트)
-- [x] UsbReceiver 스텁 (serialport 추후 구현, graceful fallback)
+- [x] UsbReceiver 구현 (node-usb + AOA) — AOA 핸드셰이크(컨트롤 전송), 액세서리 재연결 핫플러그 감지, Bulk IN/OUT 스트리밍, PacketParser 연동
 - [x] 패킷 파싱 → IPC → 마커 표시 연동
-- [x] TCP 설정 UI (로컬 IP 표시, 포트 설정, 서버 시작/중지, 연결 상태)
+- [x] TCP/USB 모드 전환 UI — 설정 패널 내 모드 토글, TCP 섹션(IP·포트·서버 제어), USB 섹션(장치 감지·AOA 연결)
 - [x] 마커 클릭 → 썸네일 요청 → 비동기 InfoWindow 표시
 - [x] SQLite DB (`better-sqlite3`) — 마커 수신 시 중복 체크 후 저장, 썸네일 캐시
 - [x] 앱 시작 시 DB에서 마커 복원 + 지도 자동 이동 (fitBounds)
@@ -212,7 +212,6 @@ document.head.appendChild(script)
 - [x] 마커 클러스터링 (`@googlemaps/markerclusterer`) — 줌 레벨 연동 자동 클러스터
 - [x] 클러스터 클릭 → 좌측 이미지 목록 패널 표시 (썸네일 미리보기 포함)
 - [x] 목록 이미지 선택 → 모달에서 썸네일 async 로딩
-- [ ] UsbReceiver 구현 (serialport) — serialport 패키지 설치 후 구현
 
 ---
 
@@ -222,8 +221,8 @@ document.head.appendChild(script)
 |------|------|
 | IDE | VS Code |
 | Node.js | v18+ |
-| 주요 패키지 | electron ^33, dotenv ^16, better-sqlite3, @googlemaps/markerclusterer (serialport는 USB 구현 시 추가 예정) |
-| 네이티브 모듈 빌드 | `npx electron-rebuild` — better-sqlite3를 Electron ABI에 맞게 재컴파일 필요 |
+| 주요 패키지 | electron ^33, dotenv ^16, better-sqlite3, @googlemaps/markerclusterer, usb ^2.x (node-usb, AOA) |
+| 네이티브 모듈 빌드 | `npx electron-rebuild` — better-sqlite3 · usb 모두 Electron ABI에 맞게 재컴파일 필요 |
 | 테스트 도구 | socat (가상 포트 테스트, `brew install socat`) |
 
 ---
@@ -290,3 +289,11 @@ jobs:
   - 수신 마커 기준 지도 자동 이동 (fitBounds / panTo)
   - @googlemaps/markerclusterer 클러스터링 — 클러스터 클릭 시 이미지 목록 패널 + async 썸네일 로딩
   - better-sqlite3 Electron ABI 불일치 수정 (electron-rebuild)
+- 2026-05-10 - USB 통신 모듈 구현 (serialport → AOA 정공법으로 전환) 및 TCP/USB 모드 전환 UI 완성
+  - [1차] serialport 기반 CDC 구현 → 실기기 테스트에서 Android가 Host API(UsbManager) 사용 구조 확인 → AOA로 방향 전환
+  - [2차 AOA] serialport 제거, node-usb(`usb` ^2.x) 설치 + electron-rebuild
+  - UsbReceiver 전면 재작성 — AOA 핸드셰이크(ACCESSORY_GET_PROTOCOL/SEND_STRING/START 컨트롤 전송), handshake-done 이벤트, usb attach 핫플러그로 액세서리 재연결 감지(VID 0x18D1, PID 0x2D00/0x2D01), Bulk IN/OUT 엔드포인트 스트리밍 폴링, PacketParser 연동
+  - main.js — usb-list-devices / usb-start / usb-stop IPC 핸들러, handshake-done 이벤트 IPC 전달
+  - preload.js — usbListDevices / usbStart / usbStop API 노출
+  - index.html — TCP/USB 모드 토글 버튼, USB 섹션(장치 감지 표시 + 새로고침 + 연결 버튼) 추가
+  - renderer.js — setupTcpSection / setupUsbSection 분리, handleUsbStatus(handshake-done/connected/disconnected/error) 처리
