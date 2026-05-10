@@ -289,7 +289,7 @@ jobs:
   - 수신 마커 기준 지도 자동 이동 (fitBounds / panTo)
   - @googlemaps/markerclusterer 클러스터링 — 클러스터 클릭 시 이미지 목록 패널 + async 썸네일 로딩
   - better-sqlite3 Electron ABI 불일치 수정 (electron-rebuild)
-- 2026-05-10 - USB 통신 모듈 구현 (serialport → AOA 정공법으로 전환) 및 TCP/USB 모드 전환 UI 완성
+- 2026-05-10 - USB 통신 모듈 구현 (serialport → AOA 정공법으로 전환), TCP/USB 모드 전환 UI 완성, 0x04 원본 이미지 수신 경로 준비
   - [1차] serialport 기반 CDC 구현 → 실기기 테스트에서 Android가 Host API(UsbManager) 사용 구조 확인 → AOA로 방향 전환
   - [2차 AOA] serialport 제거, node-usb(`usb` ^2.x) 설치 + electron-rebuild
   - UsbReceiver 전면 재작성 — AOA 핸드셰이크(ACCESSORY_GET_PROTOCOL/SEND_STRING/START 컨트롤 전송), handshake-done 이벤트, usb attach 핫플러그로 액세서리 재연결 감지(VID 0x18D1, PID 0x2D00/0x2D01), Bulk IN/OUT 엔드포인트 스트리밍 폴링, PacketParser 연동
@@ -297,3 +297,4 @@ jobs:
   - preload.js — usbListDevices / usbStart / usbStop API 노출
   - index.html — TCP/USB 모드 토글 버튼, USB 섹션(장치 감지 표시 + 새로고침 + 연결 버튼) 추가
   - renderer.js — setupTcpSection / setupUsbSection 분리, handleUsbStatus(handshake-done/connected/disconnected/error) 처리
+  - 0x04 원본 이미지 수신 경로 준비 (동작은 0x03 유지) — PacketParser.parseRawImage(), main.js CMD.RAW_IMAGE_RESPONSE 분기, preload.js onRawImage, renderer.js onRawImage 핸들러 (pending 모달/InfoWindow에 원본 이미지 표시)

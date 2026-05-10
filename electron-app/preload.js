@@ -24,4 +24,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTransportStatus: (cb) => ipcRenderer.on('transport-status', (_e, d) => cb(d)),
   onImageList: (cb) => ipcRenderer.on('image-list', (_e, d) => cb(d)),
   onThumbnail: (cb) => ipcRenderer.on('thumbnail', (_e, d) => cb(d)),
+  onRawImage: (cb) => ipcRenderer.on('raw-image', (_e, d) => cb(d)),
 })

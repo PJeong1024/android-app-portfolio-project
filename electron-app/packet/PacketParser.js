@@ -121,6 +121,12 @@ class PacketParser extends EventEmitter {
       return JSON.parse(payload.toString('utf8'))  // { imageID, thumbnailData: "base64..." }
     } catch { return null }
   }
+
+  static parseRawImage(payload) {
+    try {
+      return JSON.parse(payload.toString('utf8'))  // { imageID, imageData: "base64..." }
+    } catch { return null }
+  }
 }
 
 module.exports = { PacketParser, CMD }

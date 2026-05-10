@@ -62,6 +62,12 @@ function handlePacket(sourceReceiver, cmd, payload) {
 
     db?.saveThumbnailIfAbsent(data.imageID, data.thumbnailData)
     mainWindow?.webContents.send('thumbnail', data)
+
+  } else if (cmd === CMD.RAW_IMAGE_RESPONSE) {
+    const data = PacketParser.parseRawImage(payload)
+    if (!data) return
+
+    mainWindow?.webContents.send('raw-image', data)
   }
 }
 

@@ -250,6 +250,20 @@ function setupTransportEvents() {
     // 클러스터 패널의 썸네일도 갱신
     updateClusterPanelThumbnail(data.imageID, data.thumbnailData)
   })
+
+  // 0x04 원본 이미지 수신 — pending 모달이 있으면 즉시 교체, 없으면 캐시만
+  window.electronAPI.onRawImage((data) => {
+    if (!data?.imageID || !data?.imageData) return
+
+    const pending = pendingInfoWindows.get(data.imageID)
+    if (pending === 'modal') {
+      updateModalImage(data.imageData)
+      pendingInfoWindows.delete(data.imageID)
+    } else if (pending) {
+      showThumbnailInInfoWindow(pending.infoWindow, pending.marker, data.imageID, data.imageData)
+      pendingInfoWindows.delete(data.imageID)
+    }
+  })
 }
 
 // --- Marker management ---
