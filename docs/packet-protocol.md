@@ -1,89 +1,128 @@
-# 패킷 프로토콜 명세
+# Packet Protocol Specification
 
-## 기본 구조
+## Frame Structure
 
 ```
-┌──────┬──────┬────────┬───────────┬──────┬──────────┐
-│ STX  │ TYPE │ LENGTH │  PAYLOAD  │ ETX  │ CHECKSUM │
-│ 1byte│ 1byte│ 4byte  │  N byte   │ 1byte│  1byte   │
-└──────┴──────┴────────┴───────────┴──────┴──────────┘
+[STX 1B][CMD 1B][LENGTH 4B][PAYLOAD NB][CHECKSUM 1B][ETX 1B]
 ```
 
-| 필드 | 크기 | 값 | 설명 |
-|------|------|----|------|
-| STX | 1 byte | 0x02 | 패킷 시작 |
-| TYPE | 1 byte | 아래 참고 | 패킷 종류 |
-| LENGTH | 4 byte | N | PAYLOAD 크기 (빅엔디안) |
-| PAYLOAD | N byte | - | 데이터 |
-| ETX | 1 byte | 0x03 | 패킷 종료 |
-| CHECKSUM | 1 byte | XOR | STX~ETX XOR 합산 |
+| Field | Size | Value | Description |
+|-------|------|-------|-------------|
+| STX | 1 byte | `0x02` | packet start |
+| CMD | 1 byte | see below | packet type |
+| LENGTH | 4 bytes | N (big-endian) | payload length in bytes |
+| PAYLOAD | N bytes | UTF-8 JSON | serialized data |
+| CHECKSUM | 1 byte | `(CMD + LENGTH bytes + PAYLOAD bytes) % 256` | integrity check |
+| ETX | 1 byte | `0x03` | packet end |
 
 ---
 
-## 패킷 타입
+## CMD Types
 
-| TYPE | 값 | 설명 |
-|------|----|------|
-| MARKER_DATA | 0x01 | 마커 데이터 (GPS + 이미지) |
-| ACK | 0x02 | 수신 확인 |
-| PING | 0x03 | 연결 상태 확인 |
+| CMD | Name | Direction | Status |
+|-----|------|-----------|--------|
+| `0x01` | Image List | Android → Electron | ✅ implemented |
+| `0x02` | Image Request | Electron → Android | ✅ implemented |
+| `0x03` | Thumbnail Response | Android → Electron | ✅ implemented |
+| `0x04` | Raw Image Response | Android → Electron | path ready, send not yet triggered |
 
 ---
 
-## MARKER_DATA PAYLOAD 구조
+## Payload Schemas (JSON)
 
+### CMD 0x01 — Image List
+
+Sent when the user taps a marker or cluster on the Android map.
+
+```json
+{
+  "images": [
+    {
+      "imageId": "string",
+      "imageDisplayName": "string",
+      "imageLat": 37.1234,
+      "imageLong": 127.5678
+    }
+  ]
+}
 ```
-┌──────────┬──────────┬────────────┬──────────────────┐
-│ latitude │ longitude│ image_size │   image_data     │
-│  8 byte  │  8 byte  │   4 byte   │     N byte       │
-└──────────┴──────────┴────────────┴──────────────────┘
+
+### CMD 0x02 — Image Request
+
+Sent from Electron when the user clicks a marker on the macOS map.
+
+```json
+{
+  "imageIds": ["string", "string"]
+}
 ```
 
-| 필드 | 타입 | 크기 | 설명 |
-|------|------|------|------|
-| latitude | double | 8 byte | 위도 (빅엔디안) |
-| longitude | double | 8 byte | 경도 (빅엔디안) |
-| image_size | int | 4 byte | 이미지 바이트 크기 |
-| image_data | byte[] | N byte | JPEG 압축 이미지 |
+### CMD 0x03 — Thumbnail Response
+
+Sent from Android in response to CMD 0x02. One packet per image.
+
+```json
+{
+  "imageId": "string",
+  "thumbnailData": "<Base64-encoded JPEG>"
+}
+```
+
+### CMD 0x04 — Raw Image Response
+
+Full-resolution image response (receive path implemented; send not yet triggered).
+
+```json
+{
+  "imageId": "string",
+  "imageData": "<Base64-encoded JPEG>"
+}
+```
 
 ---
 
-## 이미지 처리 규칙
-
-- 전송 전 512px 이하로 리사이즈
-- JPEG 압축 (quality 80)
-- 분할 전송 기준: 64KB 초과 시 청크 분할
-
----
-
-## CHECKSUM 계산
+## Checksum Calculation
 
 ```kotlin
 // Android (Kotlin)
-fun calculateChecksum(data: ByteArray): Byte {
-    return data.fold(0.toByte()) { acc, byte -> (acc.toInt() xor byte.toInt()).toByte() }
+fun checksum(cmd: Byte, lengthBytes: ByteArray, payload: ByteArray): Byte {
+    var sum = cmd.toInt() and 0xFF
+    for (b in lengthBytes) sum += b.toInt() and 0xFF
+    for (b in payload) sum += b.toInt() and 0xFF
+    return (sum % 256).toByte()
 }
 ```
 
 ```javascript
-// Electron (JavaScript)
-function calculateChecksum(buffer) {
-  return buffer.reduce((acc, byte) => acc ^ byte, 0)
+// Electron (Node.js)
+function checksum(cmd, lengthBuf, payload) {
+  let sum = cmd;
+  for (const b of lengthBuf) sum += b;
+  for (const b of payload) sum += b;
+  return sum % 256;
 }
 ```
 
 ---
 
-## 패킷 예시
+## Packet Flow
 
 ```
-02          <- STX
-01          <- TYPE (MARKER_DATA)
-00 00 00 14 <- LENGTH (20 bytes = lat 8 + lng 8 + image_size 4)
-[latitude 8 bytes]
-[longitude 8 bytes]
-[image_size 4 bytes]
-[image_data N bytes]
-03          <- ETX
-XX          <- CHECKSUM
+① Android marker/cluster tap
+   → PacketBuilder.buildImageList() → CMD 0x01 → Electron
+   → Electron: save to SQLite + accumulate on map
+
+② Electron marker click
+   → CMD 0x02 (imageId list) → Android
+   → Android: load image → PacketBuilder.buildThumbnailResponse() → CMD 0x03
+   → Electron: display in InfoWindow / modal
 ```
+
+---
+
+## Parser Notes
+
+- Both sides use a **streaming parser** with an internal byte buffer (`ArrayDeque` on Android, `Buffer` on Node.js).
+- Incomplete frames are held in the buffer until the remaining bytes arrive.
+- A frame is accepted only if `CHECKSUM` matches and `ETX` is `0x03`; otherwise it is discarded.
+- `LENGTH` is read as a 4-byte big-endian unsigned integer.

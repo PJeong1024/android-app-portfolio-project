@@ -1,29 +1,30 @@
 # 개발 포트폴리오 프로젝트 기획서
 
-> 최종 업데이트: 2026-04-21
+> 최종 업데이트: 2026-05-10
 
 ---
 
 ## 1. 프로젝트 개요
 
-안드로이드 앱과 macOS Electron 앱을 로컬 통신(USB CDC / TCP/IP)으로 연동하는 포트폴리오 프로젝트.
+안드로이드 앱과 macOS Electron 앱을 로컬 통신(USB AOA / TCP/IP)으로 연동하는 포트폴리오 프로젝트.
 
 ### 핵심 어필 포인트
-- USB CDC / TCP Socket 이중 통신 방식을 추상화 인터페이스로 설계
+- USB AOA / TCP Socket 이중 통신 방식을 추상화 인터페이스로 설계
 - 런타임 교체 가능한 로컬 통신 모듈 구현
-- 확장성을 고려한 모듈화 및 DI 설계
+- 확장성을 고려한 모듈화 및 DI 설계 (Hilt)
 - Android + Electron 크로스 플랫폼 연동 구현
+- 커스텀 바이너리 패킷 프로토콜 설계 및 양단 구현
 
 ---
 
 ## 2. 유저 시나리오
 
 1. 안드로이드 앱에서 갤러리 사진의 GPS 메타데이터를 파싱
-2. Google Maps 위에 마커 표시 (마커 내 썸네일 포함)
-3. USB 케이블 또는 WiFi로 macOS와 연결
-4. 사용자가 마커를 클릭하면 해당 데이터(GPS 좌표 + 이미지)를 패킷으로 전송
+2. Google Maps 위에 마커/클러스터 표시 (마커 내 썸네일 포함)
+3. USB 케이블(AOA) 또는 WiFi(TCP)로 macOS와 연결
+4. 사용자가 마커 또는 클러스터를 클릭하면 GPS 좌표 + 이미지 목록을 패킷으로 전송
 5. macOS Electron 앱이 수신하여 Google Maps에 마커 누적 표시
-6. 마커 클릭마다 반복 → Electron 앱에 마커가 계속 추가됨
+6. Electron에서 마커 클릭 → Android에 이미지 요청 → 썸네일 비동기 로딩
 
 ---
 
@@ -31,15 +32,18 @@
 
 ```
 [안드로이드 앱]
-  갤러리 로드 → GPS 파싱 → 지도 마커 표시
-  → 마커 클릭 → 패킷 구성
-  → DataTransport (USB or TCP)
-        ↓
+  갤러리 로드 → GPS 파싱 → 지도 마커/클러스터 표시
+  → 마커/클러스터 클릭 → PacketBuilder → CMD 0x01 전송
+  → DataTransport (UsbTransport or TcpTransport)
+        ↓                         ↑
+        ↓ CMD 0x01 (image list)   │ CMD 0x02 (image request)
+        ↓                         │ CMD 0x03 (thumbnail response)
 [macOS Electron 앱]
-  DataReceiver (serialport or net.Server)
-  → 패킷 파싱
-  → IPC (Main → Renderer)
+  DataReceiver (UsbReceiver or TcpReceiver)
+  → PacketParser → IPC (Main → Renderer)
   → Maps JS API 마커 누적 표시
+  → 마커 클릭 → CMD 0x02 전송 → Android 응답 대기
+  → CMD 0x03 수신 → InfoWindow / 모달 썸네일 표시
 ```
 
 ---
@@ -48,9 +52,9 @@
 
 | # | 항목 | 기술 |
 |---|------|------|
-| 1 | 안드로이드 앱 | Kotlin, Google Maps SDK, USB Host API |
-| 2 | macOS 앱 | Electron, Maps JS API, serialport |
-| 3 | 통신 연동 | USB CDC / TCP Socket 패킷 통신 |
+| 1 | 안드로이드 앱 | Kotlin, Jetpack Compose, Hilt, Google Maps SDK, USB Accessory API (AOA) |
+| 2 | macOS 앱 | Electron, Maps JS API, node-usb (AOA), net.Server (TCP) |
+| 3 | 통신 연동 | USB AOA / TCP Socket, 커스텀 바이너리 패킷 프로토콜 |
 | 4 | UI/UX 설계 | Figma |
 | 5 | 기획/명세 문서 | Markdown |
 
@@ -58,13 +62,13 @@
 
 ## 5. 통신 방식 설계
 
-### 추상화 인터페이스 (안드로이드)
+### 추상화 인터페이스 (Android)
 
 ```kotlin
 interface DataTransport {
     val connectionType: ConnectionType
-    val isConnected: Boolean
-    var onDataReceived: ((ByteArray) -> Unit)?
+    val state: StateFlow<TransportState>       // Disconnected / Connecting / Connected / Error
+    val receivedData: SharedFlow<ByteArray>    // 수신 데이터 스트림
     fun connect()
     fun send(packet: ByteArray)
     fun disconnect()
@@ -72,15 +76,25 @@ interface DataTransport {
 
 enum class ConnectionType { USB, TCP }
 
+// USB: USB Accessory API (AOA) — Android가 Accessory, Mac이 Host
 class UsbTransport : DataTransport {
-    // BroadcastReceiver로 자동 감지 및 연결
+    // ACTION_USB_ACCESSORY_ATTACHED BroadcastReceiver
+    // openAccessory() → FileInputStream / FileOutputStream
 }
 
-class TcpTransport(
-    private val ip: String,
-    private val port: Int
-) : DataTransport {
-    // 설정값 기반 소켓 연결
+// TCP: Kotlin Coroutines Socket — Android가 Client, Electron이 Server
+class TcpTransport(ip: String, port: Int) : DataTransport {
+    // Dispatchers.IO 기반 connect / read loop / send
+}
+```
+
+### TransportManager
+
+```kotlin
+class TransportManager {
+    fun sendToAll(packet: ByteArray)                    // 연결된 모든 transport에 브로드캐스트
+    fun sendTo(type: ConnectionType, packet: ByteArray) // 특정 transport에만 송신
+    val receivedData: Flow<Pair<ConnectionType, ByteArray>> // 양쪽 수신 데이터 merge
 }
 ```
 
@@ -88,206 +102,220 @@ class TcpTransport(
 
 | 방식 | 연결 방법 | 사용자 액션 |
 |------|----------|------------|
-| USB CDC | 케이블 연결 시 자동 감지 | 없음 (자동) |
-| TCP/IP | 설정 UI에서 IP/Port 입력 | IP + Port 입력 후 연결 |
+| USB AOA | 앱 바 설정 → USB 카드 "감지 시작" → 케이블 연결 → 자동 연결 | "감지 시작" 버튼 클릭 |
+| TCP/IP | 앱 바 설정 → TCP 카드 → IP/Port 입력 후 연결 | IP + Port 입력 후 연결 |
 
 ### Electron 수신 (macOS)
 
 ```javascript
-// USB 모드
-const SerialPort = require('serialport')
-// → /dev/tty.usbmodem* 자동 감지
+// USB AOA 모드 (node-usb)
+// 1. Android 장치 감지 (ANDROID_VIDS로 필터)
+// 2. AOA 핸드셰이크: ACCESSORY_GET_PROTOCOL → SEND_STRING × 6 → ACCESSORY_START
+// 3. Android 재연결 (VID 0x18D1, PID 0x2D00/0x2D01)
+// 4. interface(0) claim → bulk IN/OUT startPoll
+const { usb } = require('usb')
 
-// TCP 모드
+// TCP 모드 (net.Server)
+// Electron이 서버, Android가 클라이언트
 const net = require('net')
 const server = net.createServer((socket) => {
-  socket.on('data', (data) => {
-    mainWindow.webContents.send('new-location', parsePacket(data))
-  })
+  socket.on('data', (data) => packetParser.feed(data))
 })
 server.listen(8080, '0.0.0.0')
 ```
 
 ---
 
-## 6. 패킷 프로토콜 (초안)
-
-
-### 전송간 동작(Android App <-> Electron App)
-
-1. Android 앱에서의 기존 동작
-- 폰에 있는 사진들에서 GPS 정보를 꺼내서 googlemap에서 마커/마커 클러스터 방식으로 표시
-- 단독 마커를 클릭하면 이미지를 보여주고, 클러스터를 클릭하면 이미지 리스트를 보여줌
-- 이미지 리스트에서 이미지를 선택하면 앞의 단독 마커 클릭처럼 이미지를 보여줌
-
-2. Electron 앱과의 연계동작(구현 목표)
-- 안드로이드 앱에서 마커나 클러스터를 클릭하면 마커 리스트 정보를 전송
-  - 전송 데이터는 imageID + imageDisplayName + imageLat + imageLong 포함
-  - 자세한 내용은 image data class 참조
-- Electron 앱에서는 해당 데이터로 마커/클러스터 표시
-- 사용자가 Electron 앱에서 해당 표시된 마커 혹은 클러스터 클릭시 Electron 앱에서는 아래와 같이 표시
-  - 마커 클릭시는 이미지 1개 표시하면서 안드로이드 앱에 imageID 기반으로 이미지 데이터 전송 요청(원본). 전송되는대로 async 이미지 로딩 진행
-  - 클러스터 클릭시는 해당 클러스터에 포함된 이미지 이름 리스트 표시(imageDataPath). 사용자가 리스트에서 이미지를 선택하면 해당 이미지 데이터 전송 요청(원본). 전송되는대로 async 이미지 로딩 진행
-
-### image data sample
-```kotlin
-@Entity(tableName = "user_images")
-data class UserImg(
-    @PrimaryKey @ColumnInfo(name = "image_id") val imageID: Int = 0,
-    @ColumnInfo(name = "image_data_path") val imageDataPath: String = "",
-    @ColumnInfo(name = "image_display_name") val imageDisplayName: String = "",
-    @ColumnInfo(name = "image_lat") val imageLat: Double? = null,
-    @ColumnInfo(name = "image_long") val imageLong: Double? = null,
-    @ColumnInfo(name = "image_date_taken") val imageDateTaken: Long = 0L,
-    @ColumnInfo(name = "image_orientation") val imageOri: Int = 0,
-    @ColumnInfo(name = "image_size") val imageSize: Long = 0L,
-    @ColumnInfo(name = "image_address") val imageAddress: String = ""
-)
-
-```
+## 6. 패킷 프로토콜
 
 ### 패킷 구조
 
 ```
 [STX 1byte][CMD 1byte][LENGTH 4byte][PAYLOAD N byte][CHECKSUM 1byte][ETX 1byte]
-- STX (Start of Text): 0x02
-- Packet Command (CMD): JSON 직렬화된 데이터 통신간 구분
+- STX: 0x02
+- CMD: 패킷 종류 구분
 - LENGTH: PAYLOAD 길이 (4 byte, big-endian)
-- PAYLOAD: 전송데이터를 JSON 직렬화한 바이트 배열
-- CHECKSUM: (CMD + LENGTH + PAYLOAD) % 256
-- ETX (End of Text): 0x03
+- PAYLOAD: JSON 직렬화 바이트 배열
+- CHECKSUM: (CMD + LENGTH bytes + PAYLOAD bytes) % 256
+- ETX: 0x03
 ```
 
-### Packet CMD 종류 (확장 가능)
-| CMD | 설명 | 패킷 전송 방향|
-|-----|------|---|
-| 0x01 | image list (imageID + imageDisplayName + imageLat + imageLong 으로 구성된 단독 데이터 혹은 리스트) | Android → Electron |
-| 0x02 | image data request (imageID 단독 혹은 리스트) | Electron → Android |
-| 0x03 | thumbnail image data response (imageID + thumbnailImageData) | Android → Electron |
-| 0x04 | raw image data response (imageID + imageData) -> 향후 구현  | Android → Electron |
+### Packet CMD
+
+| CMD | 설명 | 방향 | 구현 상태 |
+|-----|------|------|-----------|
+| 0x01 | image list (imageID + imageDisplayName + imageLat + imageLong) | Android → Electron | ✅ 완료 |
+| 0x02 | image data request (imageID 단독 또는 리스트) | Electron → Android | ✅ 완료 |
+| 0x03 | thumbnail image data response (imageID + thumbnailData Base64) | Android → Electron | ✅ 완료 |
+| 0x04 | raw image data response (imageID + imageData Base64) | Android → Electron | ✅ 수신 경로 준비, Android 응답 미호출 |
+
+### 동작 흐름
+
+```
+① Android 마커/클러스터 클릭
+   → PacketBuilder.buildImageList() → CMD 0x01 → Electron
+   → Electron: DB 저장 + 지도 마커 누적
+
+② Electron 마커 클릭
+   → CMD 0x02 (imageID 리스트) → Android
+   → Android: 이미지 로드 → PacketBuilder.buildThumbnailResponse() → CMD 0x03
+   → Electron: InfoWindow / 모달에 썸네일 표시
+```
 
 ---
 
+## 7. Android 앱 구조
 
-
-
-
-## 7. 안드로이드 앱 구조
-
-### 탭 구성 (포트폴리오 다기능 어필 목적)
+### 탭 구성
 
 ```
 MainActivity
 ├── Tab 1 : Google Maps (핵심 기능)
-│           ├── 사진 GPS 파싱
-│           ├── 마커 + 썸네일 표시
-│           └── 마커 클릭 → 패킷 전송
-├── Tab 2 : 연결 설정
-│           ├── 연결 방식 선택 (USB / TCP)
-│           ├── TCP 설정 (IP, Port) ← TCP 선택시만 활성화
-│           └── 연결 상태 표시
-└── Tab N : 기타 기능 (추후 확장)
+│           ├── 갤러리 GPS 파싱 + DB 저장
+│           ├── 마커/클러스터 표시 (MarkerClusterer)
+│           └── 마커/클러스터 클릭 → CMD 0x01 전송
+├── 앱 바 설정 아이콘(⚙) → 드롭다운
+│           └── Googlemap 설정 → ConnectionSettingsScreen 전체화면
+│                   ├── TCP 카드: IP/Port 입력 + 연결/해제
+│                   └── USB 카드: 감지 시작/중지 + 상태 표시
+└── Tab N : 기타 기능 (Chat, Weather 등)
 ```
 
-### 모듈 구조
+### 실제 모듈 구조
 
 ```
 app/
+├── data/
+│   ├── transport/
+│   │   ├── ConnectionType.kt       # enum: USB, TCP
+│   │   ├── TransportState.kt       # sealed: Disconnected/Connecting/Connected/Error
+│   │   └── DataTransport.kt        # 추상화 인터페이스
+│   └── model/packet/
+│       ├── PacketCommand.kt        # CMD enum (0x01~0x04)
+│       ├── ImageListPayload.kt     # CMD 0x01 페이로드
+│       ├── ImageRequestPayload.kt  # CMD 0x02 페이로드
+│       ├── ThumbnailPayload.kt     # CMD 0x03 페이로드
+│       └── RawImagePayload.kt      # CMD 0x04 페이로드
 ├── transport/
-│   ├── DataTransport.kt       # 인터페이스
-│   ├── UsbTransport.kt        # USB 구현체
-│   └── TcpTransport.kt        # TCP 구현체
-├── map/
-│   ├── MapManager.kt          # 지도 관련 로직
-│   └── MarkerFactory.kt       # 마커 생성
+│   ├── TcpTransport.kt             # TCP 구현체 (@Singleton)
+│   ├── UsbTransport.kt             # USB AOA 구현체 (@Singleton)
+│   └── TransportManager.kt         # 이중 transport 관리 (@Singleton)
 ├── packet/
-│   ├── PacketBuilder.kt       # 패킷 구성
-│   └── PacketParser.kt        # 패킷 파싱
-└── ui/
-    ├── MapFragment.kt
-    └── SettingsFragment.kt
+│   ├── PacketBuilder.kt            # 패킷 프레이밍 (buildImageList/Thumbnail/RawImage)
+│   └── PacketParser.kt             # 스트리밍 파서 (ArrayDeque 버퍼, 체크섬 검증)
+├── repository/
+│   └── GoogleMapsRepository.kt     # 이미지 로드 (loadThumbnailBytes/loadRawImageBytes)
+├── di/
+│   ├── AppScope.kt                 # @ApplicationScope qualifier
+│   └── AppModule.kt                # Hilt 모듈 (CoroutineScope 등)
+└── screens/
+    ├── GoogleMapsScreen.kt          # 지도 UI + 마커 클릭 → 전송
+    ├── ConnectionSettingsScreen.kt  # 연결 설정 UI
+    └── viewmodel/
+        ├── GoogleMapScreenViewModel.kt    # 마커 데이터 전송, CMD 0x02 수신 → 0x03 응답
+        └── ConnectionSettingsViewModel.kt  # TCP/USB 연결 상태 관리
 ```
 
 ---
 
 ## 8. Electron 앱 구조
 
+### 실제 파일 구조
+
 ```
 electron-app/
-├── main.js              # Main Process (USB/TCP 수신, IPC)
-├── preload.js           # 보안 브릿지
-├── index.html           # Renderer (지도 UI)
-├── renderer.js          # Maps JS API + IPC 수신
+├── main.js              # Main Process (USB/TCP 수신, IPC, DB)
+├── preload.js           # 보안 브릿지 (contextIsolation)
+├── index.html           # Renderer (지도 UI + 설정 패널 + 클러스터 패널 + 모달)
+├── renderer.js          # Maps JS API + IPC 수신 + 클러스터링 + DB 복원
 ├── transport/
-│   ├── UsbReceiver.js   # serialport 기반
-│   └── TcpReceiver.js   # net.Server 기반
+│   ├── DataReceiver.js  # 추상 기반 클래스 (EventEmitter)
+│   ├── TcpReceiver.js   # net.Server 기반 (Electron 서버, Android 클라이언트)
+│   └── UsbReceiver.js   # node-usb + AOA 핸드셰이크 + bulk IN/OUT
 ├── packet/
-│   └── PacketParser.js  # 패킷 파싱
-├── .env                 # API 키 (gitignore)
+│   └── PacketParser.js  # 스트리밍 파서 + 패킷 빌더 (parseRawImage 포함)
+├── db/
+│   └── MarkerDatabase.js # SQLite (better-sqlite3) — 마커 저장, 썸네일 캐시
+├── .env.local           # API 키 (gitignore)
 └── package.json
 ```
 
-### Electron 프로세스 역할
+### 프로세스 역할
 
 | 프로세스 | 역할 |
 |---------|------|
-| Main Process | USB/TCP 수신, 패킷 파싱, IPC 송신 |
-| Renderer Process | Google Maps 표시, 마커 누적, UI |
+| Main Process | USB AOA/TCP 수신, 패킷 파싱, IPC 송신, SQLite DB |
+| Renderer Process | Google Maps 표시, 마커 클러스터링, 썸네일 UI, 설정 패널 |
+
+### IPC 채널
+
+| 채널 | 방향 | 역할 |
+|------|------|------|
+| `get-config` | Renderer → Main | Maps API 키 |
+| `get-local-addresses` | Renderer → Main | 로컬 IP 목록 |
+| `get-all-markers` | Renderer → Main | DB 마커 전체 조회 |
+| `tcp-start/stop` | Renderer → Main | TCP 서버 제어 |
+| `usb-list-devices` | Renderer → Main | AOA 감지 Android 장치 목록 |
+| `usb-start/stop` | Renderer → Main | USB AOA 연결 제어 |
+| `request-images` | Renderer → Main | CMD 0x02 전송 |
+| `transport-status` | Main → Renderer | 연결 상태 이벤트 |
+| `image-list` | Main → Renderer | CMD 0x01 수신 |
+| `thumbnail` | Main → Renderer | CMD 0x03 수신 |
+| `raw-image` | Main → Renderer | CMD 0x04 수신 |
 
 ---
 
-## 9. 개발 환경 및 AI 도구
+## 9. 개발 환경
 
 ### IDE
 - Android Studio — 안드로이드 앱
 - VS Code — Electron 앱
 
-### AI 도구 역할 분담
+### 주요 패키지 / 라이브러리
 
-| 작업 | GitHub Copilot | Claude |
-|------|---------------|--------|
-| 인라인 자동완성 | ✅ | ✅ (Claude Code) |
-| 파일 단위 코드 생성 | △ | ✅ |
-| 설계 · 아키텍처 논의 | △ | ✅ |
-| 패킷 프로토콜 설계 | ❌ | ✅ |
-| 문서 작성 | △ | ✅ |
-
-### 추천 워크플로우
-> Claude에서 설계 · 뼈대 코드 → IDE에서 Copilot으로 세부 구현 → 막히면 다시 Claude
+| 플랫폼 | 패키지 |
+|--------|--------|
+| Android | Kotlin, Jetpack Compose, Hilt, Google Maps SDK, Kotlin Coroutines, ExifInterface |
+| Electron | electron ^33, dotenv ^16, better-sqlite3, @googlemaps/markerclusterer, usb ^2.x (node-usb) |
+| 네이티브 빌드 | `npx electron-rebuild` — better-sqlite3 · usb 모두 Electron ABI 재컴파일 필요 |
 
 ---
 
 ## 10. 개발 Phase
 
-### Phase 1 — 안드로이드 앱 리팩토링
+### Phase 1 — Android 앱
 
-- [ ] DataTransport 인터페이스 설계
-- [ ] UsbTransport 구현 (자동 연결)
-- [ ] TcpTransport 구현 (설정 UI 연동)
-- [ ] 기존 Google Maps 코드 리팩토링
-- [ ] 마커 클릭 → 패킷 전송 구현
-- [ ] 탭 구조 DI 정리
+- [x] DataTransport 인터페이스 설계 (StateFlow / SharedFlow 기반)
+- [x] TcpTransport 구현 (Coroutines, 설정 UI 연동)
+- [x] UsbTransport 구현 (USB AOA — Accessory API, BroadcastReceiver, FileStream I/O)
+- [x] TransportManager 구현 (sendToAll / sendTo / receivedData merge)
+- [x] PacketBuilder / PacketParser 구현 (CMD 0x01~0x04, 스트리밍 파서)
+- [x] 갤러리 GPS 파싱 + 마커/클러스터 표시
+- [x] 마커/클러스터 클릭 → CMD 0x01 패킷 전송
+- [x] CMD 0x02 수신 → CMD 0x03 썸네일 응답 (GoogleMapScreenViewModel)
+- [x] 연결 설정 UI (앱 바 드롭다운 → TCP/USB 카드, 상태 표시)
+- [x] AOA accessory_filter.xml 등록 (GPSMarkerViewer)
 
-**완료 기준**
-- DataTransport를 Mock으로 교체해도 앱 정상 동작
-- 마커 클릭 시 패킷 송신 로직이 UI 코드에서 완전 분리
+### Phase 2 — Electron 앱
 
-### Phase 2 — Electron 앱 빌드
-
-- [ ] 프로젝트 초기 셋업 (npm, electron, serialport)
-- [ ] 기본 창 띄우기
-- [ ] Google Maps JS API 지도 표시
-- [ ] UsbReceiver 구현 (serialport)
-- [ ] TcpReceiver 구현 (net.Server)
-- [ ] 패킷 파싱 → IPC → 마커 표시 연동
-- [ ] API 키 .env 관리
+- [x] 프로젝트 초기 셋업 (electron, dotenv, better-sqlite3, node-usb)
+- [x] Google Maps JS API 지도 표시 (동적 스크립트 주입)
+- [x] TcpReceiver 구현 (net.Server)
+- [x] UsbReceiver 구현 (node-usb + AOA 핸드셰이크 + bulk IN/OUT 스트리밍)
+- [x] PacketParser 구현 (스트리밍 파서 + 빌더, 0x01~0x04)
+- [x] SQLite DB (마커 저장, 썸네일 캐시, 앱 재시작 시 복원)
+- [x] CMD 0x01 수신 → 마커 누적 + 지도 자동 이동
+- [x] CMD 0x02 전송 → CMD 0x03 수신 → InfoWindow/모달 썸네일 표시
+- [x] CMD 0x04 수신 경로 준비 (Android 응답 시 자동 표시)
+- [x] 마커 클러스터링 + 클러스터 클릭 → 이미지 목록 패널
+- [x] TCP/USB 모드 전환 설정 UI
 
 ### Phase 3 — 양단 연동 및 검증
 
-- [ ] 패킷 프로토콜 최종 확정
-- [ ] USB 실기기 연동 테스트
-- [ ] TCP 연동 테스트
-- [ ] E2E 시나리오 검증 (마커 클릭 → 맥 누적 표시)
+- [x] TCP 실기기 연동 테스트 완료
+- [x] USB AOA 연동 테스트 완료
+- [ ] CMD 0x04 원본 이미지 전송 E2E 검증
+- [ ] E2E 전체 시나리오 최종 검증
 
 ---
 
@@ -297,54 +325,15 @@ electron-app/
 portfolio-project/
 ├── android-app/              # 안드로이드 프로젝트
 ├── electron-app/             # Electron 프로젝트
-├── figma/                    # Figma 익스포트 or 링크
 ├── docs/
-│   ├── architecture.md       # 시스템 구조 설명
-│   ├── packet-protocol.md    # USB/TCP 패킷 명세
-│   └── demo.gif              # 동작 영상 캡처
+│   ├── architecture.md
+│   └── packet-protocol.md
 ├── .github/
 │   └── workflows/
-│       ├── android-build.yml # 안드로이드 APK 자동빌드
-│       └── electron-build.yml# Electron 앱 자동빌드
+│       ├── android-build.yml
+│       └── electron-build.yml
 ├── README.md
-└── .gitignore
-```
-
-### GitHub Actions — android-build.yml
-
-```yaml
-name: Android CI
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-java@v3
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-      - name: API 키 주입
-        run: echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" > local.properties
-      - name: APK 빌드
-        run: ./gradlew assembleDebug
-      - name: APK 업로드
-        uses: actions/upload-artifact@v3
-        with:
-          name: app-debug.apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-```
-
-### README 뱃지
-
-```markdown
-![Android CI](https://github.com/username/repo/actions/workflows/android-build.yml/badge.svg)
+└── CLAUDE.md
 ```
 
 ---
@@ -353,27 +342,28 @@ jobs:
 
 ### 맥북 환경
 - [ ] Node.js v18+ 설치 확인 (`node -v`)
-- [ ] Claude Code 설치 (`npm install -g @anthropic-ai/claude-code`)
-- [ ] VS Code Copilot 익스텐션 확인
-- [ ] socat 설치 (`brew install socat`) — 가상 포트 테스트용
+- [ ] VS Code 설치
+- [ ] `npm install` → `npx electron-rebuild` (better-sqlite3, usb 네이티브 빌드)
+- [ ] `.env.local`에 `GOOGLE_MAPS_API_KEY=` 등록
 
 ### 안드로이드 환경
-- [ ] Android Studio Copilot 플러그인 설치
+- [ ] Android Studio 설치 및 프로젝트 열기
 - [ ] USB 디버깅 활성화
+- [ ] `local.properties`에 `MAPS_API_KEY=` 등록
 
 ### API / 서비스
-- [ ] Google Cloud 프로젝트 확인
-- [ ] Maps JavaScript API 활성화
-- [ ] Maps Android SDK 활성화
+- [ ] Google Cloud 프로젝트에서 Maps JavaScript API + Maps Android SDK 활성화
 - [ ] API 키 발급 및 제한 설정
 - [ ] GitHub Secrets에 MAPS_API_KEY 등록
 
 ---
 
-## 13. 이력서 어필 포인트 (초안)
+## 13. 이력서 어필 포인트
 
-> USB CDC / TCP Socket 이중 통신 방식을 추상화 인터페이스로 설계하여 런타임 교체 가능한 로컬 통신 모듈 구현
+> USB AOA (Android Open Accessory) / TCP Socket 이중 통신 방식을 추상화 인터페이스로 설계하여 런타임 교체 가능한 로컬 통신 모듈 구현
 
-> Android ↔ macOS 간 커스텀 바이너리 패킷 프로토콜 설계 및 구현
+> Android ↔ macOS 간 커스텀 바이너리 패킷 프로토콜 설계 및 양단 구현 (Kotlin + Node.js)
 
 > Electron(Node.js + Chromium) 기반 데스크탑 앱에서 Google Maps JS API 연동 및 실시간 마커 누적 표시 구현
+
+> node-usb를 활용한 AOA 핸드셰이크 구현 — Android를 USB Accessory 모드로 전환하여 Bulk IN/OUT 스트리밍 통신 구현

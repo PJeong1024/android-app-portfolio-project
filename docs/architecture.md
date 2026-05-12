@@ -1,50 +1,68 @@
-# 시스템 아키텍처
+# System Architecture
 
-## 전체 구조
+## Overview
 
 ```
-[Android App]                        [macOS Electron App]
-─────────────                        ────────────────────
-갤러리 로드                           Main Process (Node.js)
-  └─ GPS 파싱                          └─ UsbReceiver (serialport)
-  └─ 지도 마커 표시                     └─ TcpReceiver (net.Server)
-  └─ 마커 클릭                          └─ 패킷 파싱
-  └─ 패킷 구성                          └─ IPC 송신
-  └─ DataTransport                            ↓
-        ↓                             Renderer Process (Chromium)
-   USB or TCP                          └─ Maps JS API
-        ↓                              └─ 마커 누적 표시
-  [로컬 통신]
+[Android App]
+  Gallery → GPS Parsing → Map Marker / Cluster Display
+  → Marker / Cluster Click → PacketBuilder → CMD 0x01
+  → DataTransport (UsbTransport or TcpTransport)
+        │                              ▲
+        │  CMD 0x01 (image list)       │ CMD 0x02 (image request)
+        ▼                              │ CMD 0x03 (thumbnail response)
+[macOS Electron App]
+  DataReceiver (UsbReceiver or TcpReceiver)
+  → PacketParser → IPC (Main → Renderer)
+  → Maps JS API — Marker accumulation + Clustering
+  → Marker Click → CMD 0x02 → Android → CMD 0x03 → Thumbnail display
 ```
 
 ---
 
-## Android 모듈 구조
+## Android App
+
+### Module Structure
 
 ```
 app/
+├── data/
+│   ├── transport/
+│   │   ├── ConnectionType.kt       # enum: USB, TCP
+│   │   ├── TransportState.kt       # sealed: Disconnected / Connecting / Connected / Error
+│   │   └── DataTransport.kt        # abstraction interface
+│   └── model/packet/
+│       ├── PacketCommand.kt        # CMD enum (0x01 ~ 0x04)
+│       ├── ImageListPayload.kt     # CMD 0x01 payload
+│       ├── ImageRequestPayload.kt  # CMD 0x02 payload
+│       ├── ThumbnailPayload.kt     # CMD 0x03 payload
+│       └── RawImagePayload.kt      # CMD 0x04 payload
 ├── transport/
-│   ├── DataTransport.kt       # 인터페이스
-│   ├── UsbTransport.kt        # USB CDC 구현체 (자동 연결)
-│   └── TcpTransport.kt        # TCP Socket 구현체 (설정 기반)
-├── map/
-│   ├── MapManager.kt          # 지도 관련 로직
-│   └── MarkerFactory.kt       # 마커 생성
+│   ├── TcpTransport.kt             # TCP implementation (@Singleton)
+│   ├── UsbTransport.kt             # USB AOA implementation (@Singleton)
+│   └── TransportManager.kt         # dual transport manager (@Singleton)
 ├── packet/
-│   ├── PacketBuilder.kt       # 패킷 구성
-│   └── PacketParser.kt        # 패킷 파싱
-└── ui/
-    ├── MapFragment.kt         # 지도 화면
-    └── SettingsFragment.kt    # 설정 화면 (USB/TCP 스위치)
+│   ├── PacketBuilder.kt            # packet framing
+│   └── PacketParser.kt             # streaming parser (ArrayDeque buffer, checksum)
+├── repository/
+│   └── GoogleMapsRepository.kt     # image loading (thumbnail / raw)
+├── di/
+│   ├── AppScope.kt                 # @ApplicationScope qualifier
+│   └── AppModule.kt                # Hilt module (CoroutineScope, etc.)
+└── screens/
+    ├── GoogleMapsScreen.kt          # map UI + marker click → send
+    ├── ConnectionSettingsScreen.kt  # connection settings UI
+    └── viewmodel/
+        ├── GoogleMapScreenViewModel.kt    # CMD 0x02 receive → CMD 0x03 respond
+        └── ConnectionSettingsViewModel.kt  # TCP / USB connection state
 ```
 
-### DataTransport 인터페이스
+### DataTransport Interface
 
 ```kotlin
 interface DataTransport {
     val connectionType: ConnectionType
-    val isConnected: Boolean
-    var onDataReceived: ((ByteArray) -> Unit)?
+    val state: StateFlow<TransportState>    // Disconnected / Connecting / Connected / Error
+    val receivedData: SharedFlow<ByteArray> // inbound data stream
     fun connect()
     fun send(packet: ByteArray)
     fun disconnect()
@@ -53,92 +71,91 @@ interface DataTransport {
 enum class ConnectionType { USB, TCP }
 ```
 
+### TransportManager
+
+```kotlin
+class TransportManager {
+    fun sendToAll(packet: ByteArray)                     // broadcast to all active transports
+    fun sendTo(type: ConnectionType, packet: ByteArray)  // send to specific transport
+    val receivedData: Flow<Pair<ConnectionType, ByteArray>> // merged inbound stream
+}
+```
+
+### USB AOA Connection Flow
+
+```
+① Android: tap "Start Detection" → UsbTransport registers BroadcastReceiver
+② Electron (Mac): node-usb detects Android device → AOA handshake
+     ACCESSORY_GET_PROTOCOL → SEND_STRING ×6 → ACCESSORY_START
+③ Android: restarts in Accessory mode → ACTION_USB_ACCESSORY_ATTACHED
+④ Android: permission granted → openAccessory() → FileStream I/O → Connected
+⑤ Packet exchange identical to TCP from this point
+   Cable unplugged: ACTION_USB_ACCESSORY_DETACHED → auto Disconnected
+```
+
+### TCP Connection Flow
+
+```
+① Electron: open Settings → TCP → enter port → click "Start Server" (net.Server listens)
+② Android: open Settings → TCP card → enter Mac's IP and port → Connect
+③ TcpTransport establishes Socket connection on Dispatchers.IO
+④ Read loop runs on a dedicated coroutine; send() writes directly
+```
+
 ---
 
-## Electron 모듈 구조
+## Electron App (macOS)
+
+### Module Structure
 
 ```
 electron-app/
-├── main.js              # Main Process
-├── preload.js           # 보안 브릿지
-├── index.html           # Renderer UI
-├── renderer.js          # Maps JS API + IPC 수신
+├── main.js              # Main Process (USB/TCP receive, IPC, DB)
+├── preload.js           # security bridge (contextIsolation)
+├── index.html           # Renderer (map UI + settings panel + cluster panel + modal)
+├── renderer.js          # Maps JS API + IPC receive + clustering + DB restore
 ├── transport/
-│   ├── UsbReceiver.js   # serialport 기반
-│   └── TcpReceiver.js   # net.Server 기반
+│   ├── DataReceiver.js  # abstract base class (EventEmitter)
+│   ├── TcpReceiver.js   # net.Server — Electron server, Android client
+│   └── UsbReceiver.js   # node-usb + AOA handshake + bulk IN/OUT streaming
 ├── packet/
-│   └── PacketParser.js  # 패킷 파싱
-└── .env                 # API 키 (gitignore)
+│   └── PacketParser.js  # streaming parser + packet builder (0x01 ~ 0x04)
+├── db/
+│   └── MarkerDatabase.js # SQLite (better-sqlite3) — marker storage, thumbnail cache
+├── .env.local           # API key (gitignored)
+└── package.json
 ```
 
-### Electron 프로세스 역할
+### Process Roles
 
-| 프로세스 | 역할 |
-|---------|------|
-| Main Process | USB/TCP 수신, 패킷 파싱, IPC 송신 |
-| Renderer Process | Google Maps 표시, 마커 누적, UI |
+| Process | Responsibility |
+|---------|----------------|
+| Main Process | USB AOA / TCP receive, packet parsing, IPC send, SQLite DB |
+| Renderer Process | Google Maps display, marker clustering, thumbnail UI, settings panel |
+
+### IPC Channels
+
+| Channel | Direction | Role |
+|---------|-----------|------|
+| `get-config` | Renderer → Main | Maps API key |
+| `get-local-addresses` | Renderer → Main | local IP list |
+| `get-all-markers` | Renderer → Main | full marker query from DB |
+| `tcp-start/stop` | Renderer → Main | TCP server control |
+| `usb-list-devices` | Renderer → Main | list detectable Android devices |
+| `usb-start/stop` | Renderer → Main | USB AOA connection control |
+| `request-images` | Renderer → Main | send CMD 0x02 |
+| `transport-status` | Main → Renderer | connection state events |
+| `image-list` | Main → Renderer | CMD 0x01 received |
+| `thumbnail` | Main → Renderer | CMD 0x03 received |
+| `raw-image` | Main → Renderer | CMD 0x04 received |
 
 ---
 
-## 통신 방식
+## Communication Modes
 
-### USB CDC (자동 연결)
-```
-안드로이드 케이블 연결
-  → BroadcastReceiver 감지
-  → UsbTransport.connect() 자동 호출
-  → /dev/tty.usbmodem* 포트로 통신
-```
+| Mode | Role | Protocol |
+|------|------|----------|
+| USB AOA | Android = Accessory, Mac = Host | USB Bulk IN/OUT |
+| TCP/IP | Electron = Server, Android = Client | TCP Socket |
 
-### TCP/IP Socket (설정 기반)
-```
-설정 화면에서 IP / Port 입력
-  → TcpTransport(ip, port) 생성
-  → Socket 연결
-  → Electron net.Server 수신
-```
-
----
-
-## 패킷 프로토콜
-
-```
-[STX 1byte][TYPE 1byte][LENGTH 4byte][PAYLOAD N byte][ETX 1byte][CHECKSUM 1byte]
-```
-
-### PAYLOAD 구조
-
-| 필드 | 타입 | 크기 |
-|------|------|------|
-| 위도 | double | 8 byte |
-| 경도 | double | 8 byte |
-| 이미지 크기 | int | 4 byte |
-| 이미지 데이터 | byte[] | N byte (JPEG 압축) |
-
-- 이미지: 512px 이하 리사이즈 후 JPEG 압축
-- 대용량: 청크 분할 전송
-
----
-
-## API 키 관리
-
-### Android
-```
-local.properties (gitignore)
-  └─ MAPS_API_KEY=...
-  └─ BuildConfig.MAPS_API_KEY 로 참조
-```
-
-### Electron
-```
-.env (gitignore)
-  └─ MAPS_API_KEY=...
-  └─ process.env.MAPS_API_KEY 로 참조
-```
-
-### GitHub Actions
-```
-Repository Secrets
-  └─ MAPS_API_KEY
-  └─ CI 빌드 시 자동 주입
-```
+Both modes share the same packet protocol and DataTransport abstraction — transport type is switchable at runtime without changing upper-layer logic.

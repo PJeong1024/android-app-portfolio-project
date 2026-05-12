@@ -16,6 +16,7 @@ electron-app/.env.local
 electron-app/dist/
 
 # 공통
+resume/
 .env
 .env.local
 *.log
