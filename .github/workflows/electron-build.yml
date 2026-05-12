@@ -25,6 +25,9 @@ jobs:
           cache: 'npm'
           cache-dependency-path: electron-app/package-lock.json
 
+      - name: Python setuptools 설치 (node-gyp 의존성)
+        run: pip3 install setuptools
+
       - name: API 키 주입
         run: |
           echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" > electron-app/.env
