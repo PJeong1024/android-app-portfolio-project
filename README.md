@@ -25,15 +25,18 @@ A portfolio project demonstrating local communication between an Android device 
 |:-----------------:|:------------------:|:--------------------:|
 | ![](screenshots/android/android_map_markers.png) | ![](screenshots/android/android_map_cluster.png) | ![](screenshots/android/android_image_view.png) |
 
+
 | Settings — TCP | Settings — USB (AOA) |
 |:--------------:|:--------------------:|
 | ![](screenshots/android/android_settings_tcp.png) | ![](screenshots/android/android_settings_usb.png) |
+
 
 ### Electron App (macOS)
 
 | Map — Marker Accumulation | Cluster Panel — Image List | Thumbnail Modal |
 |:-------------------------:|:--------------------------:|:---------------:|
 | ![](screenshots/electron/electron_map_markers.png) | ![](screenshots/electron/electron_cluster_panel.png) | ![](screenshots/electron/electron_thumbnail_modal.png) |
+
 
 | Settings — TCP Mode | Settings — USB (AOA) Mode |
 |:-------------------:|:-------------------------:|
