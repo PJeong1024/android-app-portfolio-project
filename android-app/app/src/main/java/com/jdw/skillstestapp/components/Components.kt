@@ -17,6 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Card
@@ -75,10 +77,18 @@ fun SkillsTestAppBar(
     icon: ImageVector? = null,
     showProfile: Boolean = true,
     navController: NavController,
-    onBackArrowClicked: () -> Unit = {}
+    onBackArrowClicked: () -> Unit = {},
+    additionalActions: @Composable RowScope.() -> Unit = {}
 ) {
     TopAppBar(
         modifier = Modifier.shadow(elevation = 1.dp),
+        navigationIcon = {
+            if (icon != null) {
+                IconButton(onClick = onBackArrowClicked) {
+                    Icon(imageVector = icon, contentDescription = "back")
+                }
+            }
+        },
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -92,6 +102,7 @@ fun SkillsTestAppBar(
             }
         },
         actions = {
+            additionalActions()
             IconButton(onClick = {
                 // todo action icon click
             }) {

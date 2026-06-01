@@ -5,11 +5,13 @@ import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.ui.graphics.vector.ImageVector
 
 object Constants {
     val items = listOf(
         BottomNaviBarScreen.GoogleMaps,
+        BottomNaviBarScreen.FoodSearch,
         BottomNaviBarScreen.GeminiCharRoom,
         BottomNaviBarScreen.FirebaseAuthScreen,
         BottomNaviBarScreen.WeatherApiScreen,
@@ -19,7 +21,8 @@ object Constants {
 }
 
 enum class BottomNaviBarScreen(val label: String, val icon: ImageVector, val route: String) {
-    GoogleMaps("Google Maps", Icons.Filled.Map, "googleMaps"),
+    GoogleMaps("Google Maps Marker", Icons.Filled.Map, "googleMaps"),
+    FoodSearch("Food Search", Icons.Filled.Restaurant, "foodSearch"),
     GeminiCharRoom("Chat with Gemini", Icons.AutoMirrored.Filled.Message, "geminiChatRoom"),
     FirebaseAuthScreen("Firebase Auth", Icons.AutoMirrored.Filled.Login, "firebaseAuthScreen"),
     WeatherApiScreen("Weather API", Icons.Filled.Menu, "weatherApiScreen"),

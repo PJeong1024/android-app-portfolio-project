@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.jdw.skillstestapp.data.model.UserImg
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface UserImgDao {
@@ -15,9 +16,9 @@ interface UserImgDao {
     @Delete
     suspend fun deleteImage(userImg: UserImg)
 
-    @Query("SELECT * FROM user_images")
-    suspend fun getAllImages(): List<UserImg>
+    @Query("SELECT * FROM user_images ORDER BY image_date_taken DESC")
+    fun getAllImages(): Flow<List<UserImg>>
 
-    @Query("SELECT * FROM user_images WHERE image_id = :imageID LIMIT 1")
-    suspend fun getImage(imageID: Int): UserImg?
+    @Query("SELECT image_id FROM user_images")
+    suspend fun getAllImageIds(): List<Int>
 }

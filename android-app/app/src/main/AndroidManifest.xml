@@ -10,9 +10,12 @@
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" /> <!-- under android 13 -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" /> <!-- android 13 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"
+        tools:ignore="PhotoAndVideoPolicy,SystemPermissionTypo" /> <!-- android 13 -->
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <uses-feature android:name="android.hardware.usb.accessory" android:required="false" />
 
     <application
         android:name=".SkillsTestApplication"
@@ -43,9 +46,14 @@
             android:theme="@style/Theme.SkillsTestApp">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
+                android:resource="@xml/accessory_filter" />
         </activity>
 
         <meta-data

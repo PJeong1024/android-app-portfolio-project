@@ -149,4 +149,7 @@ dependencies {
     // OKHttp
     implementation(libs.okhttp)
 
+    // Google Places SDK
+    implementation(libs.places)
+
 }

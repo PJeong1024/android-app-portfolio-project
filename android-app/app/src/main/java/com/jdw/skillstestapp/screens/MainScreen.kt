@@ -11,7 +11,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Scaffold
@@ -43,27 +49,76 @@ fun MainScreen(
 ) {
     val context = LocalContext.current
     val currentScreen = remember { mutableStateOf(BottomNaviBarScreen.GoogleMaps) }
+    val showSettingsMenu = remember { mutableStateOf(false) }
+    val showConnectionSettings = remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            SkillsTestAppBar(
-                title = stringResource(R.string.app_name),
-                navController = navController,
-                showProfile = false
-            )
+            if (showConnectionSettings.value) {
+                SkillsTestAppBar(
+                    title = "Googlemap 설정",
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    showProfile = false,
+                    navController = navController,
+                    onBackArrowClicked = { showConnectionSettings.value = false }
+                )
+            } else {
+                SkillsTestAppBar(
+                    title = stringResource(R.string.app_name),
+                    navController = navController,
+                    showProfile = false,
+                    additionalActions = {
+                        Box {
+                            IconButton(onClick = { showSettingsMenu.value = true }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Settings,
+                                    contentDescription = "Settings"
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showSettingsMenu.value,
+                                onDismissRequest = { showSettingsMenu.value = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Googlemap 설정") },
+                                    onClick = {
+                                        showSettingsMenu.value = false
+                                        showConnectionSettings.value = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Chat 설정") },
+                                    onClick = { showSettingsMenu.value = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Weather 설정") },
+                                    onClick = { showSettingsMenu.value = false }
+                                )
+                            }
+                        }
+                    }
+                )
+            }
         },
         bottomBar = {
-            BottomNavigationBar(
-                items = Constants.items,
-                currentScreen = currentScreen,
-                onItemSelected = { screen ->
-                    currentScreen.value = screen
-//                    navController.navigate(screen.route)
-                }
-            )
+            if (!showConnectionSettings.value) {
+                BottomNavigationBar(
+                    items = Constants.items,
+                    currentScreen = currentScreen,
+                    onItemSelected = { screen ->
+                        currentScreen.value = screen
+                    }
+                )
+            }
         }
     ) { paddingValues ->
-        if (getConnectionType(context) != NetworkConnectionType.NoConnection) {
+        if (showConnectionSettings.value) {
+            ConnectionSettingsScreen(
+                navController = navController,
+                viewModel = hiltViewModel(),
+                paddingValues = paddingValues
+            )
+        } else if (getConnectionType(context) != NetworkConnectionType.NoConnection) {
             CurrentScreen(
                 screen = currentScreen.value,
                 paddingValues = paddingValues,
@@ -140,6 +195,12 @@ fun CurrentScreen(
 ) {
     when (screen) {
         BottomNaviBarScreen.GoogleMaps -> GoogleMapsScreen(
+            navController = navController,
+            viewModel = hiltViewModel(),
+            paddingValues = paddingValues
+        )
+
+        BottomNaviBarScreen.FoodSearch -> FoodSearchScreen(
             navController = navController,
             viewModel = hiltViewModel(),
             paddingValues = paddingValues
