@@ -1,24 +1,31 @@
 # 개발 포트폴리오 프로젝트 기획서
 
-> 최종 업데이트: 2026-05-10
+> 최종 업데이트: 2026-06-01
 
 ---
 
 ## 1. 프로젝트 개요
+- 안드로이드 앱을 중심으로 한 다양한 기능구현을 통해 Android 개발 역량을 종합적으로 어필하는 포트폴리오 프로젝트
+- 탭 기반 멀티 피처 구조로, 각 탭이 독립적인 기능 단위를 이루며 지속적으로 탭이 추가된다
 
-안드로이드 앱과 macOS Electron 앱을 로컬 통신(USB AOA / TCP/IP)으로 연동하는 포트폴리오 프로젝트.
+### 현재 탭 구성
+- **Tab 1 — Google Maps Marker**: 갤러리 GPS 파싱 + 지도 마커/클러스터 + USB AOA / TCP 통신으로 macOS Electron 연동
+- **Tab 2 — Food Search**: Places API 기반 현재 위치 주변 음식점 검색 + 이미지 마커 + 바텀시트 상세 정보
+- **Tab N**: 향후 기능 탭 지속 추가 예정
 
-### 핵심 어필 포인트
-- USB AOA / TCP Socket 이중 통신 방식을 추상화 인터페이스로 설계
+### 주요 기술적 도전 과제
+- USB AOA / TCP Socket 이중 통신 방식을 추상화 인터페이스로 설계 (Tab 1 전용)
 - 런타임 교체 가능한 로컬 통신 모듈 구현
 - 확장성을 고려한 모듈화 및 DI 설계 (Hilt)
-- Android + Electron 크로스 플랫폼 연동 구현
+- Android + Electron 크로스 플랫폼 연동 구현 (Tab 1 전용)
 - 커스텀 바이너리 패킷 프로토콜 설계 및 양단 구현
+- Google Maps SDK + Places API 연동을 통한 지도 기반 기능 구현
 
 ---
 
 ## 2. 유저 시나리오
 
+### 2.1 Tab 1 — Google Maps Marker
 1. 안드로이드 앱에서 갤러리 사진의 GPS 메타데이터를 파싱
 2. Google Maps 위에 마커/클러스터 표시 (마커 내 썸네일 포함)
 3. USB 케이블(AOA) 또는 WiFi(TCP)로 macOS와 연결
@@ -26,10 +33,19 @@
 5. macOS Electron 앱이 수신하여 Google Maps에 마커 누적 표시
 6. Electron에서 마커 클릭 → Android에 이미지 요청 → 썸네일 비동기 로딩
 
+### 2.2 Tab 2 — Food Search
+1. 탭 진입 → 위치 권한 확인 (없으면 자동 요청)
+2. 현재 위치 기반 1km 반경 음식점 자동 검색
+3. 가게별 이미지 마커 비동기 로딩 (기본 아이콘 → 이미지 마커 교체)
+4. 마커 클릭 → 바텀 시트에 가게 상세 정보 표시 (영업 상태, 평점, 가격대, 영업시간, 사진, 리뷰)
+5. 클러스터 클릭 → 바텀 시트 가게 목록 → 항목 선택 → 상세 정보
+6. FAB(↺) → 주변 검색 재실행
+
 ---
 
 ## 3. 시스템 구조
 
+### 3.1 Tab 1 — Google Maps Marker
 ```
 [안드로이드 앱]
   갤러리 로드 → GPS 파싱 → 지도 마커/클러스터 표시
@@ -46,13 +62,23 @@
   → CMD 0x03 수신 → InfoWindow / 모달 썸네일 표시
 ```
 
+### 3.2 Tab 2 — Food Search
+```
+[안드로이드 앱]
+  위치 권한 확인 → FusedLocationProvider → 현재 GPS 좌표
+  → PlacesRepository.searchNearbyRestaurants() → Place 목록 수신
+  → 기본 마커 표시 → fetchPlacePhoto() 병렬 로딩 → 이미지 마커 교체
+  → 마커/클러스터 클릭 → BottomSheet 상세 정보 표시
+     (영업 상태 / 평점 / 가격대 / 영업시간 / 사진 그리드 / 리뷰)
+```
+
 ---
 
 ## 4. 개발 범위
 
 | # | 항목 | 기술 |
 |---|------|------|
-| 1 | 안드로이드 앱 | Kotlin, Jetpack Compose, Hilt, Google Maps SDK, USB Accessory API (AOA) |
+| 1 | 안드로이드 앱 | Kotlin, Jetpack Compose, Hilt, Google Maps SDK, USB Accessory API (AOA), Places SDK for Android |
 | 2 | macOS 앱 | Electron, Maps JS API, node-usb (AOA), net.Server (TCP) |
 | 3 | 통신 연동 | USB AOA / TCP Socket, 커스텀 바이너리 패킷 프로토콜 |
 | 4 | UI/UX 설계 | Figma |
@@ -147,7 +173,7 @@ server.listen(8080, '0.0.0.0')
 | 0x01 | image list (imageID + imageDisplayName + imageLat + imageLong) | Android → Electron | ✅ 완료 |
 | 0x02 | image data request (imageID 단독 또는 리스트) | Electron → Android | ✅ 완료 |
 | 0x03 | thumbnail image data response (imageID + thumbnailData Base64) | Android → Electron | ✅ 완료 |
-| 0x04 | raw image data response (imageID + imageData Base64) | Android → Electron | ✅ 수신 경로 준비, Android 응답 미호출 |
+| 0x04 | raw image data response (imageID + imageData Base64) | Android → Electron | ✅ 완료 |
 
 ### 동작 흐름
 
@@ -170,15 +196,23 @@ server.listen(8080, '0.0.0.0')
 
 ```
 MainActivity
-├── Tab 1 : Google Maps (핵심 기능)
+├── Tab 1 : Google Maps Marker ✅ 완료
 │           ├── 갤러리 GPS 파싱 + DB 저장
-│           ├── 마커/클러스터 표시 (MarkerClusterer)
-│           └── 마커/클러스터 클릭 → CMD 0x01 전송
+│           ├── 마커/클러스터 표시 (UserImgClusterItem + Clustering)
+│           ├── 마커/클러스터 클릭 → CMD 0x01 전송 (USB AOA / TCP)
+│           └── CMD 0x02 수신 → CMD 0x03/0x04 이미지 응답
+├── Tab 2 : Food Search ✅ 완료
+│           ├── 위치 권한 확인 + 현재 위치 기반 자동 검색
+│           ├── Places API 음식점 마커/클러스터 표시
+│           ├── 이미지 마커 비동기 로딩 (기본 아이콘 → 음식 사진으로 교체)
+│           ├── 마커 클릭 → 바텀 시트 상세 (영업상태·평점·가격대·영업시간·사진·리뷰)
+│           ├── 클러스터 클릭 → 바텀 시트 목록 → 항목 클릭 → 상세
+│           └── FAB(↺) 리프레시 버튼
 ├── 앱 바 설정 아이콘(⚙) → 드롭다운
 │           └── Googlemap 설정 → ConnectionSettingsScreen 전체화면
 │                   ├── TCP 카드: IP/Port 입력 + 연결/해제
 │                   └── USB 카드: 감지 시작/중지 + 상태 표시
-└── Tab N : 기타 기능 (Chat, Weather 등)
+└── Tab N : 기타 기능 (Chat, Weather 등) — 향후 추가 예정
 ```
 
 ### 실제 모듈 구조
@@ -204,15 +238,18 @@ app/
 │   ├── PacketBuilder.kt            # 패킷 프레이밍 (buildImageList/Thumbnail/RawImage)
 │   └── PacketParser.kt             # 스트리밍 파서 (ArrayDeque 버퍼, 체크섬 검증)
 ├── repository/
-│   └── GoogleMapsRepository.kt     # 이미지 로드 (loadThumbnailBytes/loadRawImageBytes)
+│   ├── GoogleMapsRepository.kt     # 이미지 로드 (loadThumbnailBytes/loadRawImageBytes)
+│   └── PlacesRepository.kt         # Places API Nearby Search + fetchPlacePhoto
 ├── di/
 │   ├── AppScope.kt                 # @ApplicationScope qualifier
-│   └── AppModule.kt                # Hilt 모듈 (CoroutineScope 등)
+│   └── AppModule.kt                # Hilt 모듈 (PlacesClient + FusedLocationClient 포함)
 └── screens/
-    ├── GoogleMapsScreen.kt          # 지도 UI + 마커 클릭 → 전송
+    ├── GoogleMapsScreen.kt          # Tab 1: 지도 UI + 마커 클릭 → 전송
+    ├── FoodSearchScreen.kt          # Tab 2: 음식점 검색 지도 + 클러스터 + 바텀시트
     ├── ConnectionSettingsScreen.kt  # 연결 설정 UI
     └── viewmodel/
         ├── GoogleMapScreenViewModel.kt    # 마커 데이터 전송, CMD 0x02 수신 → 0x03 응답
+        ├── FoodSearchViewModel.kt         # 위치 획득 + Nearby Search + 사진 비동기 로딩
         └── ConnectionSettingsViewModel.kt  # TCP/USB 연결 상태 관리
 ```
 
@@ -275,7 +312,7 @@ electron-app/
 
 | 플랫폼 | 패키지 |
 |--------|--------|
-| Android | Kotlin, Jetpack Compose, Hilt, Google Maps SDK, Kotlin Coroutines, ExifInterface |
+| Android | Kotlin, Jetpack Compose, Hilt, Google Maps SDK, Places SDK for Android, Kotlin Coroutines, ExifInterface |
 | Electron | electron ^33, dotenv ^16, better-sqlite3, @googlemaps/markerclusterer, usb ^2.x (node-usb) |
 | 네이티브 빌드 | `npx electron-rebuild` — better-sqlite3 · usb 모두 Electron ABI 재컴파일 필요 |
 
@@ -314,8 +351,22 @@ electron-app/
 
 - [x] TCP 실기기 연동 테스트 완료
 - [x] USB AOA 연동 테스트 완료
-- [ ] CMD 0x04 원본 이미지 전송 E2E 검증
-- [ ] E2E 전체 시나리오 최종 검증
+- [x] CMD 0x04 원본 이미지 전송 E2E 검증
+- [x] E2E 전체 시나리오 최종 검증
+
+### Phase 4 — Food Search (Android Tab 2)
+
+- [x] Places SDK for Android 3.5.0 의존성 추가 (build.gradle)
+- [x] PlacesClient / FusedLocationProviderClient DI 구성 (AppModule)
+- [x] PlacesRepository 구현 (searchNearbyRestaurants + fetchPlacePhoto)
+- [x] FoodSearchViewModel 구현 (위치 획득 + Nearby Search + 사진 비동기 로딩)
+- [x] FoodSearchScreen Google Maps 기반 UI 구현 (지도 + 클러스터 + 바텀시트)
+- [x] 이미지 마커 비동기 로딩 (기본 아이콘 → 음식 사진으로 교체)
+- [x] 바텀시트 상세: 영업 상태·평점·가격대·영업시간·사진 그리드·리뷰
+- [x] 클러스터 클릭 → 바텀시트 목록 → 항목 클릭 → 상세 정보
+- [x] FAB(↺) 리프레시 버튼
+- [x] Food Search 탭 추가 (Tab 2, Icons.Filled.Restaurant)
+- [x] 실기기 동작 검증 완료
 
 ---
 
@@ -352,7 +403,7 @@ portfolio-project/
 - [ ] `local.properties`에 `MAPS_API_KEY=` 등록
 
 ### API / 서비스
-- [ ] Google Cloud 프로젝트에서 Maps JavaScript API + Maps Android SDK 활성화
+- [ ] Google Cloud 프로젝트에서 Maps JavaScript API + Maps Android SDK + Places API (New) 활성화
 - [ ] API 키 발급 및 제한 설정
 - [ ] GitHub Secrets에 MAPS_API_KEY 등록
 
@@ -367,3 +418,5 @@ portfolio-project/
 > Electron(Node.js + Chromium) 기반 데스크탑 앱에서 Google Maps JS API 연동 및 실시간 마커 누적 표시 구현
 
 > node-usb를 활용한 AOA 핸드셰이크 구현 — Android를 USB Accessory 모드로 전환하여 Bulk IN/OUT 스트리밍 통신 구현
+
+> Google Places API 연동을 통한 현재 위치 기반 음식점 검색, 이미지 마커 비동기 로딩 및 바텀시트 상세 정보 표시 구현
