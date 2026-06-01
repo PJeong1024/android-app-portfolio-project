@@ -39,6 +39,10 @@ jobs:
         run: |
           echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" > android-app/local.properties
 
+      - name: google-services.json 주입
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android-app/app/google-services.json
+
       - name: 실행 권한 부여
         run: chmod +x android-app/gradlew
 
