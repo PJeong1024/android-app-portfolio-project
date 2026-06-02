@@ -3,7 +3,7 @@
 ![Android CI](https://github.com/Pjeong1024/android-app-portfolio-project/actions/workflows/android-build.yml/badge.svg)
 ![Electron CI](https://github.com/Pjeong1024/android-app-portfolio-project/actions/workflows/electron-build.yml/badge.svg)
 
-A portfolio Android app built around **Google Maps SDK** and **Places API**, demonstrating multiple independent features as tab-based screens. Each tab showcases a distinct technical challenge — from cross-platform USB/TCP communication to real-time location-based search. New tabs are continuously added as the project grows.
+A portfolio Android app demonstrating multiple independent features as tab-based screens. Each tab showcases a distinct technical challenge — from cross-platform USB/TCP communication and real-time location-based search to AI-powered chat with intent classification. New tabs are continuously added as the project grows.
 
 ---
 
@@ -13,6 +13,7 @@ A portfolio Android app built around **Google Maps SDK** and **Places API**, dem
 |-----|------|-------------|
 | Tab 1 | **Google Maps Marker** | Parses GPS metadata from gallery photos, displays markers/clusters on Google Maps, and transmits selected marker data to a macOS Electron app via USB AOA or TCP/IP |
 | Tab 2 | **Food Search** | Searches nearby restaurants using Google Places API, displays image markers with async photo loading, and shows detailed info (hours, rating, reviews, photos) in a bottom sheet |
+| Tab 3 | **Gemini Chat** | AI chatbot powered by Google Gemini SDK with Structured Output intent classification — general conversation or place search with results displayed as interactive cards |
 | Tab N | *(planned)* | Additional feature tabs to be added |
 
 ---
@@ -31,6 +32,14 @@ A portfolio Android app built around **Google Maps SDK** and **Places API**, dem
 - **Image marker async loading** — default icon displayed immediately; replaced with food photo once fetched via `fetchPlacePhoto()`
 - **Marker clustering** — `PlaceClusterItem` wrapper with `Clustering` composable; cluster click → bottom sheet list
 - **Place detail bottom sheet** — business status chip, rating, price level, opening hours (7-day), photo grid, and reviews
+
+### Tab 3 — Gemini Chat
+- **Structured Output intent classification** — `systemInstruction` forces Gemini to respond in JSON; parses `PLACE_SEARCH` / `GENERAL` intent from natural language input
+- **AI-driven place search** — `PLACE_SEARCH` intent triggers `FusedLocationProvider` + `PlacesRepository.searchNearbyPlaces()` with 25-type keyword mapping
+- **Card UI result display** — search results rendered as `SearchCard` items in a horizontal `LazyRow` with async thumbnail loading
+- **Google Maps integration** — card tap fires a `geo:` URI intent to open the location directly in Google Maps
+- **Extensible card architecture** — `SearchCard` / `ChatItem.CardResult` shared model; new search types require only a new intent case + handler, no UI changes
+- **Conversation history** — Room DB stores chat history; restored on app relaunch
 
 ### Common
 - **Modular DI architecture** — Hilt with `@Singleton` scoped repositories and `@ApplicationScope` coroutine scope
@@ -56,6 +65,12 @@ A portfolio Android app built around **Google Maps SDK** and **Places API**, dem
 | Map — Image Markers | Bottom Sheet — Place List | Bottom Sheet — Place Detail |
 |:-------------------:|:-------------------------:|:---------------------------:|
 | ![](screenshots/android/android_food_map.png) | ![](screenshots/android/android_food_list.png) | ![](screenshots/android/android_food_detail.png) |
+
+### Tab 3 — Gemini Chat (Android)
+
+| Chat — General Conversation | Chat — Place Search Cards | Chat — Typing Indicator |
+|:---------------------------:|:-------------------------:|:-----------------------:|
+| ![](screenshots/android/android_chat_general.png) | ![](screenshots/android/android_chat_place_cards.png) | ![](screenshots/android/android_chat_typing.png) |
 
 ### Tab 1 — Google Maps Marker (Electron / macOS)
 
@@ -105,12 +120,33 @@ A portfolio Android app built around **Google Maps SDK** and **Places API**, dem
 ```
 [Android App]
   Location permission check → FusedLocationProvider → current GPS coordinates
-  → PlacesRepository.searchNearbyRestaurants() (1km CircularBounds)
+  → PlacesRepository.searchNearbyPlaces() (1km CircularBounds)
   → Default markers displayed immediately
   → fetchPlacePhoto() parallel loading → image markers replace default icons
   → Marker click   → BottomSheet: business status / rating / price / hours / photos / reviews
   → Cluster click  → BottomSheet: place list → item tap → place detail
   → FAB (↺)        → re-trigger searchNearby()
+```
+
+### Tab 3 — Gemini Chat
+
+```
+[Android App]
+  User message input
+  → Gemini AI SDK (gemini-2.5-flash) with systemInstruction
+  → Structured Output JSON: GeminiIntent { intent, message, keyword, radiusMeters }
+
+  intent == "GENERAL"
+  → Text bubble saved to Room DB + displayed in chat UI
+
+  intent == "PLACE_SEARCH"
+  → FusedLocationProvider → current location
+  → PlacesRepository.searchNearbyPlaces(keyword, radiusMeters)
+    (keywordToPlaceTypes: 25-type mapping)
+  → Place → SearchCard (title / subtitle / badge / latLng)
+  → ChatItem.CardResult → CardResultRow (horizontal LazyRow)
+  → fetchPlacePhoto() async thumbnail loading per card
+  → Card tap → geo:URI → Google Maps app
 ```
 
 ---
@@ -144,6 +180,7 @@ PAYLOAD  = UTF-8 JSON byte array
 | Map | Google Maps SDK for Android |
 | Places | Places SDK for Android 3.5.0 |
 | Location | FusedLocationProviderClient |
+| AI | Google Gemini AI SDK (generative-ai 0.9.0) |
 | USB | USB Accessory API (AOA) |
 | Network | TCP Socket (java.net.Socket) |
 | Image metadata | ExifInterface |
@@ -189,6 +226,7 @@ portfolio-project/
   - **Maps JavaScript API**
   - **Maps SDK for Android**
   - **Places API (New)**
+- Google AI Studio account for **Gemini API key**
 
 ### Electron App
 
@@ -207,6 +245,7 @@ npm start
 1. Open android-app/ in Android Studio
 2. Add to local.properties:
    MAPS_API_KEY=your_key
+   GEMINI_API_KEY=your_key
 3. Run on device (USB debugging enabled)
 ```
 
@@ -232,6 +271,7 @@ This project requires API keys managed via local config files (`.gitignore`'d):
 |-----|------|----------|---------|
 | Maps JavaScript API | `electron-app/.env.local` | `GOOGLE_MAPS_API_KEY` | Electron map display |
 | Maps Android SDK + Places API (New) | `android-app/local.properties` | `MAPS_API_KEY` | Android map + Food Search |
+| Gemini API | `android-app/local.properties` | `GEMINI_API_KEY` | Tab 3 Gemini Chat |
 
 > **Note:** The same `MAPS_API_KEY` is reused for both Maps SDK and Places API (New). Ensure **Places API (New)** is enabled on this key in Google Cloud Console.
 

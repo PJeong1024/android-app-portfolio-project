@@ -1,6 +1,6 @@
 # 개발 포트폴리오 프로젝트 기획서
 
-> 최종 업데이트: 2026-06-01
+> 최종 업데이트: 2026-06-02
 
 ---
 
@@ -11,6 +11,7 @@
 ### 현재 탭 구성
 - **Tab 1 — Google Maps Marker**: 갤러리 GPS 파싱 + 지도 마커/클러스터 + USB AOA / TCP 통신으로 macOS Electron 연동
 - **Tab 2 — Food Search**: Places API 기반 현재 위치 주변 음식점 검색 + 이미지 마커 + 바텀시트 상세 정보
+- **Tab 3 — Gemini Chat**: Google Gemini AI 엔진과의 연동기반 챗봇 인터페이스
 - **Tab N**: 향후 기능 탭 지속 추가 예정
 
 ### 주요 기술적 도전 과제
@@ -19,7 +20,8 @@
 - 확장성을 고려한 모듈화 및 DI 설계 (Hilt)
 - Android + Electron 크로스 플랫폼 연동 구현 (Tab 1 전용)
 - 커스텀 바이너리 패킷 프로토콜 설계 및 양단 구현
-- Google Maps SDK + Places API 연동을 통한 지도 기반 기능 구현
+- Google Maps SDK + Places API 연동을 통한 지도 기반 기능 구현 (Tab 1, Tab 2)
+- Google Gemini AI 엔진과의 연동기반 챗봇 인터페이스 구현 (Tab 3)
 
 ---
 
@@ -40,6 +42,14 @@
 4. 마커 클릭 → 바텀 시트에 가게 상세 정보 표시 (영업 상태, 평점, 가격대, 영업시간, 사진, 리뷰)
 5. 클러스터 클릭 → 바텀 시트 가게 목록 → 항목 선택 → 상세 정보
 6. FAB(↺) → 주변 검색 재실행
+
+### 2.3 Tab 3 — Gemini Chat
+1. 탭 진입 → 챗 인터페이스 표시 (메시지 목록 + 입력창 + 전송 버튼)
+2. 사용자 메시지 입력 → Gemini AI SDK 호출 → Structured Output으로 의도(intent) 분류
+3. 일반 대화(`GENERAL`) → AI 응답 텍스트 버블로 표시
+4. 장소 검색(`PLACE_SEARCH`) → 현재 위치 기반 Places API 검색 → 결과를 카드 UI(LazyRow)로 표시
+5. 카드 클릭 → Google Maps 앱 연동 (geo: URI Intent)
+6. 대화 히스토리 Room DB 저장 → 앱 재진입 시 복원
 
 ---
 
@@ -71,6 +81,25 @@
   → 마커/클러스터 클릭 → BottomSheet 상세 정보 표시
      (영업 상태 / 평점 / 가격대 / 영업시간 / 사진 그리드 / 리뷰)
 ```
+### 3.3 Tab 3 — Gemini Chat
+```
+[안드로이드 앱]
+  챗 UI → 사용자 메시지 입력
+  → ChatRepository.sendMessage() → Gemini AI SDK (gemini-2.5-flash)
+  → Structured Output JSON 응답 파싱: GeminiIntent { intent, message, keyword, radiusMeters }
+
+  intent == "GENERAL"
+  → 텍스트 버블 DB 저장 + UI 표시
+
+  intent == "PLACE_SEARCH"
+  → FusedLocationProvider → 현재 위치
+  → PlacesRepository.searchNearbyPlaces(keyword, radiusMeters)
+    (keywordToPlaceTypes: 25종 매핑)
+  → Place → SearchCard 변환 (title/subtitle/badge/latLng)
+  → ChatItem.CardResult → CardResultRow (LazyRow 수평 스크롤)
+  → 카드 썸네일 fetchPlacePhoto() 비동기 로딩
+  → 카드 클릭 → geo:URI → Google Maps 앱
+```
 
 ---
 
@@ -78,7 +107,7 @@
 
 | # | 항목 | 기술 |
 |---|------|------|
-| 1 | 안드로이드 앱 | Kotlin, Jetpack Compose, Hilt, Google Maps SDK, USB Accessory API (AOA), Places SDK for Android |
+| 1 | 안드로이드 앱 | Kotlin, Jetpack Compose, Hilt, Google Maps SDK, USB Accessory API (AOA), Places SDK for Android, Google Gemini AI SDK |
 | 2 | macOS 앱 | Electron, Maps JS API, node-usb (AOA), net.Server (TCP) |
 | 3 | 통신 연동 | USB AOA / TCP Socket, 커스텀 바이너리 패킷 프로토콜 |
 | 4 | UI/UX 설계 | Figma |
@@ -246,10 +275,12 @@ app/
 └── screens/
     ├── GoogleMapsScreen.kt          # Tab 1: 지도 UI + 마커 클릭 → 전송
     ├── FoodSearchScreen.kt          # Tab 2: 음식점 검색 지도 + 클러스터 + 바텀시트
+    ├── GeminiChatRoomScreen.kt      # Tab 3: 챗 UI (버블 + 카드 + 입력창)
     ├── ConnectionSettingsScreen.kt  # 연결 설정 UI
     └── viewmodel/
         ├── GoogleMapScreenViewModel.kt    # 마커 데이터 전송, CMD 0x02 수신 → 0x03 응답
         ├── FoodSearchViewModel.kt         # 위치 획득 + Nearby Search + 사진 비동기 로딩
+        ├── GeminiChatRoomViewModel.kt     # Gemini API 호출, Structured Output 파싱, 카드 관리
         └── ConnectionSettingsViewModel.kt  # TCP/USB 연결 상태 관리
 ```
 
@@ -312,7 +343,7 @@ electron-app/
 
 | 플랫폼 | 패키지 |
 |--------|--------|
-| Android | Kotlin, Jetpack Compose, Hilt, Google Maps SDK, Places SDK for Android, Kotlin Coroutines, ExifInterface |
+| Android | Kotlin, Jetpack Compose, Hilt, Google Maps SDK, Places SDK for Android, Kotlin Coroutines, ExifInterface, Google Gemini AI SDK (generative-ai 0.9.0) |
 | Electron | electron ^33, dotenv ^16, better-sqlite3, @googlemaps/markerclusterer, usb ^2.x (node-usb) |
 | 네이티브 빌드 | `npx electron-rebuild` — better-sqlite3 · usb 모두 Electron ABI 재컴파일 필요 |
 
@@ -368,6 +399,23 @@ electron-app/
 - [x] Food Search 탭 추가 (Tab 2, Icons.Filled.Restaurant)
 - [x] 실기기 동작 검증 완료
 
+### Phase 5 — Gemini Chat (Android Tab 3)
+
+- [x] Google Gemini AI SDK (generative-ai 0.9.0) 의존성 확인 + 모델 업그레이드 (→ gemini-2.5-flash)
+- [x] Gemini API 키 local.properties 등록 (`GEMINI_API_KEY=`)
+- [x] GeminiChatRoomScreen UI 전면 개선 (입력창 pill 형태, 메시지 버블 Material3, 아바타, 타이핑 인디케이터)
+- [x] 예외 처리 (try-catch-finally, 에러 메시지 챗 UI 표시)
+- [x] Structured Output 기반 의도 분류 (systemInstruction, GeminiIntent JSON 파싱)
+- [x] PLACE_SEARCH → FusedLocation + PlacesRepository.searchNearbyPlaces() 연동
+- [x] SearchCard 공용 카드 모델 (title/subtitle/badge/latLng/actionUrl)
+- [x] ChatItem.CardResult → CardResultRow (LazyRow 수평 스크롤 카드 UI)
+- [x] 카드 썸네일 비동기 로딩 + 실시간 업데이트
+- [x] 장소 타입 매핑 25종 (음식/쇼핑/생활/시설/서비스)
+- [x] 카드 클릭 → Google Maps geo: URI Intent
+- [x] Room DB 대화 히스토리 저장/복원
+- [x] LazyColumn key 중복 버그 수정
+- [x] 실기기 동작 검증 완료 (일반 대화 + 장소 검색 + 카드 클릭)
+
 ---
 
 ## 11. 레포지토리 구조
@@ -401,11 +449,13 @@ portfolio-project/
 - [ ] Android Studio 설치 및 프로젝트 열기
 - [ ] USB 디버깅 활성화
 - [ ] `local.properties`에 `MAPS_API_KEY=` 등록
+- [ ] `local.properties`에 `GEMINI_API_KEY=` 등록
 
 ### API / 서비스
 - [ ] Google Cloud 프로젝트에서 Maps JavaScript API + Maps Android SDK + Places API (New) 활성화
+- [ ] Google AI Studio에서 Gemini API 키 발급
 - [ ] API 키 발급 및 제한 설정
-- [ ] GitHub Secrets에 MAPS_API_KEY 등록
+- [ ] GitHub Secrets에 MAPS_API_KEY, GEMINI_API_KEY 등록
 
 ---
 
@@ -420,3 +470,7 @@ portfolio-project/
 > node-usb를 활용한 AOA 핸드셰이크 구현 — Android를 USB Accessory 모드로 전환하여 Bulk IN/OUT 스트리밍 통신 구현
 
 > Google Places API 연동을 통한 현재 위치 기반 음식점 검색, 이미지 마커 비동기 로딩 및 바텀시트 상세 정보 표시 구현
+
+> Google Gemini AI SDK Structured Output을 활용한 자연어 의도 분류 구현 — systemInstruction으로 JSON 응답을 강제하여 PLACE_SEARCH / GENERAL 의도를 파싱하고, Places API 검색 결과를 채팅 UI 내 카드로 표시
+
+> 확장 가능한 AI 챗봇 아키텍처 설계 — SearchCard / ChatItem.CardResult 공용 구조로 새 검색 타입 추가 시 카드 UI 재사용 가능 (intent 케이스 + handleXxxSearch() 추가만으로 확장)
